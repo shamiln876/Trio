@@ -11,6 +11,7 @@ protocol CarbsObserver {
 protocol CarbsStorage {
     var updatePublisher: AnyPublisher<Void, Never> { get }
     func storeCarbs(_ carbs: [CarbsEntry], areFetchedFromRemote: Bool) async throws
+    func storeSmartMeal(_ request: SmartMealRequest) async throws
     /// Builds a single, real, locally-entered carb entry ready to pass to `storeCarbs`.
     func makeCarbEntry(carbs: Decimal, date: Date) -> CarbsEntry
     func deleteCarbsEntryStored(_ treatmentObjectID: NSManagedObjectID) async
@@ -20,6 +21,10 @@ protocol CarbsStorage {
     func getFPUsNotYetUploadedToNightscout() async throws -> [NightscoutTreatment]
     func getCarbsNotYetUploadedToHealth() async throws -> [CarbsEntry]
     func getCarbsNotYetUploadedToTidepool() async throws -> [CarbsEntry]
+}
+
+extension CarbsStorage {
+    func storeSmartMeal(_: SmartMealRequest) async throws { throw SmartMealError.ledgerUnavailable }
 }
 
 final class BaseCarbsStorage: CarbsStorage, Injectable {
@@ -74,6 +79,80 @@ final class BaseCarbsStorage: CarbsStorage, Injectable {
 
         await saveCarbsToCoreData(entries: entriesToStore, areFetchedFromRemote: areFetchedFromRemote)
         await saveCarbEquivalents(entries: entriesToStore, areFetchedFromRemote: areFetchedFromRemote)
+    }
+
+    /// Dedicated batch path: normal storeCarbs intentionally stores only the last entry.
+    /// One context.save commits all meal/FPU entries, or none. Never swallow a save failure.
+    func storeSmartMeal(_ request: SmartMealRequest) async throws {
+        let date = Date(timeIntervalSince1970: request.confirmedAt)
+        let fpuID = SmartMealWire.entryID(request.id, suffix: "fpu").uuidString
+        let immediate = CarbsEntry(
+            id: request.nowEntryID.uuidString,
+            createdAt: date,
+            actualDate: date,
+            carbs: Decimal(request.immediateCarbs),
+            fat: Decimal(request.fat),
+            protein: Decimal(request.protein),
+            note: "📡 Smart meal \(request.id.uuidString) · now",
+            enteredBy: CarbsEntry.local,
+            isFPU: false,
+            fpuID: request.includeFatProtein ? fpuID : nil
+        )
+        var entries = [immediate]
+        if let later = request.delayedAt {
+            entries.append(CarbsEntry(
+                id: request.laterEntryID.uuidString,
+                createdAt: date,
+                actualDate: Date(timeIntervalSince1970: later),
+                carbs: Decimal(request.delayedCarbs),
+                fat: 0,
+                protein: 0,
+                note: "📡 Smart meal \(request.id.uuidString) · later, carbs only",
+                enteredBy: CarbsEntry.local,
+                isFPU: false,
+                fpuID: nil
+            ))
+        }
+        if request.includeFatProtein, request.fat > 0 || request.protein > 0 {
+            let equivalents = processFPU(
+                entries: [immediate],
+                fat: Decimal(request.fat),
+                protein: Decimal(request.protein),
+                createdAt: date,
+                actualDate: date
+            ).0
+            entries += equivalents.enumerated().map { index, entry in
+                CarbsEntry(
+                    id: SmartMealWire.entryID(request.id, suffix: "fpu-\(index)").uuidString,
+                    createdAt: entry.createdAt,
+                    actualDate: entry.actualDate,
+                    carbs: entry.carbs,
+                    fat: 0,
+                    protein: 0,
+                    note: "Smart meal · opted-in FPU",
+                    enteredBy: CarbsEntry.local,
+                    isFPU: true,
+                    fpuID: fpuID
+                )
+            }
+        }
+        let rows = try entries.map { entry -> SmartMealCarbRow in
+            guard let id = entry.id.flatMap(UUID.init(uuidString:)) else { throw SmartMealError.invalidRequest }
+            return SmartMealCarbRow(
+                id: id,
+                date: entry.actualDate ?? entry.createdAt,
+                carbs: NSDecimalNumber(decimal: entry.carbs).doubleValue,
+                fat: NSDecimalNumber(decimal: entry.fat ?? 0).doubleValue,
+                protein: NSDecimalNumber(decimal: entry.protein ?? 0).doubleValue,
+                note: entry.note,
+                isFPU: entry.isFPU ?? false,
+                fpuID: entry.fpuID.flatMap(UUID.init(uuidString:))
+            )
+        }
+        let context = makeContext()
+        context.name = "storeSmartMealAtomic"
+        try await SmartMealCarbBatch.commit(rows, in: context)
+        updateSubject.send(())
     }
 
     private func filterRemoteEntries(entries: [CarbsEntry]) async throws -> [CarbsEntry] {

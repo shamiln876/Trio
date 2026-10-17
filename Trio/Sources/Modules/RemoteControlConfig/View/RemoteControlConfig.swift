@@ -15,6 +15,9 @@ extension RemoteControlConfig {
         @State var hintLabel: String?
         @State private var decimalPlaceholder: Decimal = 0.0
         @State private var isCopied: Bool = false
+        @State private var smartMealReceipts: [SmartMealReceipt] = []
+        @State private var confirmSmartMealCheck = false
+        @State private var smartMealError: String?
 
         @Environment(\.colorScheme) var colorScheme
         @Environment(AppState.self) var appState
@@ -47,6 +50,47 @@ extension RemoteControlConfig {
                     },
                     headerText: String(localized: "Trio Remote Control")
                 )
+
+                Section("Smart Meal Advisor") {
+                    Text(
+                        "Split carbs are stored on this phone in one transaction. The later entry contains carbs only; no later insulin bolus is scheduled."
+                    )
+                    .font(.footnote)
+                    if SmartMealReceiver.shared == nil {
+                        Text("Smart meal replay protection is unavailable. Split-meal commands are disabled.")
+                            .foregroundStyle(.orange)
+                    }
+                    ForEach(smartMealReceipts, id: \.request.id) { receipt in
+                        VStack(alignment: .leading) {
+                            Text("\(receipt.request.immediateCarbs) g now · \(receipt.request.delayedCarbs) g later")
+                            Text(receipt.message).font(.caption)
+                        }
+                    }
+                    if smartMealReceipts.contains(where: { $0.phase.needsChecking }) {
+                        Button("I checked both carb entries and actual insulin in treatments") { confirmSmartMealCheck = true }
+                        Text(
+                            "Only acknowledge after checking what actually happened. This unlocks a new review and never retries the previous bolus."
+                        )
+                        .font(.footnote)
+                    }
+                    if let smartMealError { Text(smartMealError).foregroundStyle(.orange) }
+                }
+                .task { smartMealReceipts = await SmartMealReceiver.shared?.recent() ?? [] }
+                .confirmationDialog(
+                    "Have you checked both carb entries and actual insulin delivery?",
+                    isPresented: $confirmSmartMealCheck
+                ) {
+                    Button("I checked · allow a new meal") {
+                        Task {
+                            do {
+                                try await SmartMealReceiver.shared?.reconcileUncertain()
+                                smartMealReceipts = await SmartMealReceiver.shared?.recent() ?? []
+                                resolver.resolve(NightscoutManager.self)?.requestSmartMealStatusUpload()
+                            } catch { smartMealError = error.localizedDescription }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                }
 
                 Section(
                     header: Text("Shared Secret"),

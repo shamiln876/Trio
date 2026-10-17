@@ -43,6 +43,33 @@ import Testing
         return result.reversed()
     }
 
+    @Test func scheduledSplitCarbsAreExcludedUntilDue() throws {
+        let now = Date.from(isoString: "2026-10-17T12:00:00Z")
+        let immediate = MealInput(timestamp: now.addingTimeInterval(-60), carbs: 60, bolus: nil)
+        let later = MealInput(timestamp: now.addingTimeInterval(1800), carbs: 20, bolus: nil)
+        let glucose = createGlucoseData(baseTime: now.addingTimeInterval(-3600), pattern: Array(repeating: 100, count: 13))
+        let first = try MealTotal.recentCarbs(
+            treatments: [immediate],
+            pumpHistory: [],
+            profile: createBasicProfile(),
+            basalProfile: createBasicBasalProfile(),
+            glucose: glucose,
+            time: now
+        )
+        let split = try MealTotal.recentCarbs(
+            treatments: [immediate, later],
+            pumpHistory: [],
+            profile: createBasicProfile(),
+            basalProfile: createBasicBasalProfile(),
+            glucose: glucose,
+            time: now
+        )
+        let current = try #require(first)
+        let withFuture = try #require(split)
+        #expect(current.carbs == 60 && withFuture.carbs == 60)
+        #expect(current.mealCOB == withFuture.mealCOB)
+    }
+
     @Test("should calculate carb absorption correctly") func calculateCarbAbsorption() async throws {
         let baseTime = Date.from(isoString: "2016-06-19T12:00:00-04:00")
         let mealTime = Date.from(isoString: "2016-06-19T12:00:00-04:00")

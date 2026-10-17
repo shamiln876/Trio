@@ -1,3 +1,4 @@
+// swiftformat:disable redundantParens
 import CoreData
 import Foundation
 import Swinject
@@ -35,6 +36,70 @@ import Testing
         #expect(storage != nil, "CarbsStorage should be injected")
         #expect(storage is BaseCarbsStorage, "Storage should be of type BaseCarbsStorage")
         #expect(storage.updatePublisher != nil, "Update publisher should be available")
+    }
+
+    @Test("Smart meal production adapter stores both dated rows without FPU") func smartMealStoresBothRows() async throws {
+        let now = Date()
+        let meal = SmartMealRequest(
+            id: UUID(),
+            confirmedAt: now.timeIntervalSince1970,
+            calculationAt: now.timeIntervalSince1970,
+            configurationID: "synthetic-adapter-test",
+            immediateCarbs: 60,
+            delayedCarbs: 20,
+            delaySeconds: 1800,
+            fullRecommendation: 5.8,
+            upfrontPercent: 75,
+            bolusAmount: 4.35,
+            includeFatProtein: false,
+            protein: 0,
+            fat: 0
+        )
+        try await storage.storeSmartMeal(meal)
+        try await testContext.perform {
+            let fetch = CarbEntryStored.fetchRequest()
+            fetch.sortDescriptors = [NSSortDescriptor(key: "date", ascending: true)]
+            let rows = try self.testContext.fetch(fetch)
+            #expect(rows.count == 2)
+            #expect(rows.map(\.carbs) == [60, 20])
+            #expect(rows.map(\.id) == [meal.nowEntryID, meal.laterEntryID])
+            #expect(rows.map(\.date) == [now, now.addingTimeInterval(1800)])
+            #expect(rows.allSatisfy { !$0.isFPU && $0.fat == 0 && $0.protein == 0 && $0.fpuID == nil })
+        }
+        await #expect(throws: (any Error).self) { try await self.storage.storeSmartMeal(meal) }
+    }
+
+    @Test(
+        "Smart meal opted-in macros affect only the initial row and native FPU entries"
+    ) func smartMealMacrosAreExplicitAndLaterRowIsCarbsOnly() async throws {
+        let now = Date()
+        let meal = SmartMealRequest(
+            id: UUID(),
+            confirmedAt: now.timeIntervalSince1970,
+            calculationAt: now.timeIntervalSince1970,
+            configurationID: "synthetic-adapter-test",
+            immediateCarbs: 60,
+            delayedCarbs: 20,
+            delaySeconds: 1800,
+            fullRecommendation: 5.8,
+            upfrontPercent: 75,
+            bolusAmount: 4.35,
+            includeFatProtein: true,
+            protein: 100,
+            fat: 50
+        )
+        try await storage.storeSmartMeal(meal)
+        try await testContext.perform {
+            let rows = try self.testContext.fetch(CarbEntryStored.fetchRequest())
+            let immediate = try #require(rows.first { $0.id == meal.nowEntryID })
+            let later = try #require(rows.first { $0.id == meal.laterEntryID })
+            #expect(immediate.protein == 100 && immediate.fat == 50 && immediate.fpuID != nil)
+            #expect(later.carbs == 20 && later.protein == 0 && later.fat == 0 && later.fpuID == nil && !later.isFPU)
+            let equivalents = rows.filter(\.isFPU)
+            #expect(equivalents.count == 2)
+            #expect(equivalents.allSatisfy { $0.fat == 0 && $0.protein == 0 && $0.fpuID == immediate.fpuID })
+            #expect(Set(rows.compactMap(\.id)).count == rows.count)
+        }
     }
 
     @Test("Store and retrieve carbs entries") func testStoreAndRetrieveCarbs() async throws {
