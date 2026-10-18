@@ -21,32 +21,44 @@ request = lambda do |path, body = nil|
   raise "Invitation request failed: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
   JSON.parse(response.body)
 end
-app = request.call("/v1/apps/#{app_id}").fetch("data")
-raise "Unexpected app identity" unless app.fetch("attributes")["bundleId"] == bundle
-users = request.call("/v1/users?limit=200").fetch("data")
-existing_user = users.find { |u| u.fetch("attributes")["username"].to_s.downcase == email }
 result = {recipientSHA256: Digest::SHA256.hexdigest(email), appID: app_id, otherAppsGranted: false, provisioningAllowed: false}
-if existing_user
-  result[:status] = "existing_account_requires_group_membership"
-  result[:userID] = existing_user.fetch("id")
-else
-  pending = request.call("/v1/userInvitations?limit=200").fetch("data")
-  invitation = pending.find { |i| i.fetch("attributes")["email"].to_s.downcase == email }
-  unless invitation
-    name = email.split("@").first.split(/[._-]+/).map(&:capitalize)
-    body = {data: {type: "userInvitations", attributes: {email: email, firstName: name.first, lastName: name.drop(1).join(" "), roles: ["MARKETING"], allAppsVisible: false, provisioningAllowed: false}, relationships: {visibleApps: {data: [{type: "apps", id: app_id}]}}}}
-    invitation = request.call("/v1/userInvitations", body).fetch("data")
-    result[:newInvitationSent] = true
+begin
+  app = request.call("/v1/apps/#{app_id}").fetch("data")
+  raise "Unexpected app identity" unless app.fetch("attributes")["bundleId"] == bundle
+  users = request.call("/v1/users?limit=200").fetch("data")
+  existing_user = users.find { |u| u.fetch("attributes")["username"].to_s.downcase == email }
+  if existing_user
+    result[:status] = "existing_account_requires_group_membership"
+    result[:userID] = existing_user.fetch("id")
+  else
+    pending = request.call("/v1/userInvitations?limit=200").fetch("data")
+    invitation = pending.find { |i| i.fetch("attributes")["email"].to_s.downcase == email }
+    unless invitation
+      name = email.split("@").first.split(/[._-]+/).map(&:capitalize)
+      body = {data: {type: "userInvitations", attributes: {email: email, firstName: name.first, lastName: name.drop(1).join(" "), roles: ["MARKETING"], allAppsVisible: false, provisioningAllowed: false}, relationships: {visibleApps: {data: [{type: "apps", id: app_id}]}}}}
+      invitation = request.call("/v1/userInvitations", body).fetch("data")
+      result[:newInvitationSent] = true
+    end
+    attrs = invitation.fetch("attributes")
+    raise "Unexpected invitation role" unless attrs["roles"] == ["MARKETING"]
+    raise "Unexpected all-app access" unless attrs["allAppsVisible"] == false
+    raise "Unexpected provisioning access" unless attrs.fetch("provisioningAllowed", false) == false
+    # Apple supports included relationship data on the invitation resource;
+    # it does not expose the direct /visibleApps endpoint used previously.
+    verified = request.call("/v1/userInvitations/#{invitation.fetch('id')}?include=visibleApps").fetch("data")
+    raise "Invitation changed during verification" unless verified.fetch("attributes").slice("roles", "allAppsVisible", "provisioningAllowed") == attrs.slice("roles", "allAppsVisible", "provisioningAllowed")
+    visible = verified.fetch("relationships").fetch("visibleApps").fetch("data").map { |a| a.fetch("id") }
+    raise "Unexpected visible apps" unless visible == [app_id]
+    result[:invitationID] = invitation.fetch("id")
+    result[:status] = "pending_recipient_acceptance"
+    result[:roles] = attrs["roles"]
   end
-  attrs = invitation.fetch("attributes")
-  raise "Unexpected invitation role" unless attrs["roles"] == ["MARKETING"]
-  raise "Unexpected all-app access" unless attrs["allAppsVisible"] == false
-  raise "Unexpected provisioning access" unless attrs.fetch("provisioningAllowed", false) == false
-  visible = request.call("/v1/userInvitations/#{invitation.fetch('id')}/visibleApps").fetch("data").map { |a| a.fetch("id") }
-  raise "Unexpected visible apps" unless visible == [app_id]
-  result[:invitationID] = invitation.fetch("id")
-  result[:status] = "pending_recipient_acceptance"
-  result[:roles] = attrs["roles"]
+  File.write(ARGV.fetch(0), JSON.pretty_generate(result) + "\n")
+  puts JSON.generate(result)
+rescue => error
+  result[:status] = result[:newInvitationSent] ? "invitation_sent_verification_failed" : "verification_failed"
+  result[:error] = error.message
+  File.write(ARGV.fetch(0), JSON.pretty_generate(result) + "\n")
+  warn JSON.generate(result)
+  raise
 end
-File.write(ARGV.fetch(0), JSON.pretty_generate(result) + "\n")
-puts JSON.generate(result)
