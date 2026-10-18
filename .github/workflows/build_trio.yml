@@ -35,7 +35,7 @@ jobs:
   build:
     if: github.ref == 'refs/heads/feature/smart-meal-receiver'
     name: Build and verify Smart Meal update
-    runs-on: macos-26
+    runs-on: ${{ inputs.status_only && 'macos-15' || 'macos-26' }}
     timeout-minutes: 90
     steps:
       # Read the input from the event file so the recipient is masked before
@@ -83,6 +83,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "8c535deac34a705d39df1582055925df9c757072"
           git rev-parse HEAD > smart-meal-source.txt
       - name: Select existing Xcode version
+        if: ${{ !inputs.status_only }}
         run: sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer
       - name: Install pinned project dependencies
         if: ${{ !inputs.build_loopfollow && !inputs.status_only }}
