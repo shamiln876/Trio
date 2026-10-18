@@ -38,6 +38,18 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 90
     steps:
+      # Read the input from the event file so the recipient is masked before
+      # a later step prints its environment. Never interpolate it into shell code.
+      - name: Mask optional invitation recipient
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          with open(os.environ["GITHUB_EVENT_PATH"]) as event_file:
+              recipient = json.load(event_file).get("inputs", {}).get("invite_email", "")
+          if recipient:
+              recipient = recipient.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print("::add-mask::" + recipient)
+          PYTHON
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.ref }}
