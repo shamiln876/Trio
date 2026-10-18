@@ -1,8 +1,13 @@
 name: 4. Build Trio
-run-name: Smart Meal Trio TestFlight (${{ github.ref_name }})
+run-name: Smart Meal TestFlight (${{ inputs.build_loopfollow && 'LoopFollow' || 'Trio' }})
 on:
   workflow_dispatch:
     inputs:
+      build_loopfollow:
+        description: Build the pinned reviewed LoopFollow update for family installation
+        type: boolean
+        required: true
+        default: false
       publish:
         description: Upload the verified build to the existing TestFlight app
         type: boolean
@@ -34,12 +39,29 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           git rev-parse HEAD > smart-meal-source.txt
+      - name: Checkout reviewed LoopFollow source
+        if: inputs.build_loopfollow
+        uses: actions/checkout@v5
+        with:
+          repository: shamiln876/LoopFollow
+          ref: 1c2228cbf89b9dd50a16e4e77164ef7d4199bb77
+          path: loopfollow
+          submodules: recursive
+          persist-credentials: false
+      - name: Confirm reviewed LoopFollow source
+        if: inputs.build_loopfollow
+        working-directory: loopfollow
+        run: |
+          test "$(git rev-parse HEAD)" = "1c2228cbf89b9dd50a16e4e77164ef7d4199bb77"
+          git rev-parse HEAD > smart-meal-source.txt
       - name: Select existing Xcode version
         run: sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer
       - name: Install pinned project dependencies
+        if: ${{ !inputs.build_loopfollow }}
         run: bundle install
       # Existing signing assets only. No upstream sync, certificate creation or revocation.
       - name: Build signed App Store archive
+        if: ${{ !inputs.build_loopfollow }}
         run: |
           test "$TEAMID" = "D3GG62L9X8"
           bundle exec fastlane build_trio
@@ -52,12 +74,75 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_READONLY: "true"
       - name: Verify source, identity and distribution signing
+        if: ${{ !inputs.build_loopfollow }}
         run: python3 scripts/verify-smart-meal-distribution.py Trio.ipa --source "$(cat smart-meal-source.txt)" --output smart-meal-verification.json
       - name: Upload verified build to existing TestFlight app
-        if: inputs.publish
+        if: inputs.publish && !inputs.build_loopfollow
         run: bundle exec fastlane release
         env:
           TEAMID: ${{ secrets.TEAMID }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+      - name: Install reviewed LoopFollow dependencies
+        if: inputs.build_loopfollow
+        working-directory: loopfollow
+        run: bundle install
+      - name: Read existing family tester-group status
+        if: inputs.build_loopfollow
+        working-directory: loopfollow
+        run: |
+          bundle exec ruby ../scripts/testflight-read-status.rb com.D3GG62L9X8.LoopFollow testflight-before.json
+          bundle exec ruby ../scripts/testflight-read-status.rb org.nightscout.D3GG62L9X8.trio trio-testflight-status.json
+        env:
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+      - name: Save read-only access status
+        if: inputs.build_loopfollow
+        uses: actions/upload-artifact@v6
+        with:
+          name: family-testflight-access-status
+          path: |
+            loopfollow/testflight-before.json
+            loopfollow/trio-testflight-status.json
+          retention-days: 1
+      - name: Build reviewed LoopFollow with existing signing assets
+        if: inputs.build_loopfollow
+        working-directory: loopfollow
+        run: |
+          test "$TEAMID" = "D3GG62L9X8"
+          bundle exec fastlane build_LoopFollow
+        env:
+          LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_READONLY: "true"
+          MINIMUM_BUILD_NUMBER: "20"
+      - name: Verify LoopFollow source, identity and distribution signing
+        if: inputs.build_loopfollow
+        working-directory: loopfollow
+        run: python3 Scripts/verify-smart-meal-distribution.py LoopFollow.ipa --source "$(cat smart-meal-source.txt)" --output smart-meal-verification.json
+      - name: Upload reviewed LoopFollow to its existing TestFlight app
+        if: inputs.publish && inputs.build_loopfollow
+        working-directory: loopfollow
+        run: bundle exec fastlane release
+        env:
+          LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
+          TEAMID: ${{ secrets.TEAMID }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          WAIT_FOR_PROCESSING: "true"
+      - name: Read LoopFollow tester-group and Apple processing status
+        if: inputs.publish && inputs.build_loopfollow
+        working-directory: loopfollow
+        run: bundle exec ruby ../scripts/testflight-read-status.rb com.D3GG62L9X8.LoopFollow testflight-status.json
+        env:
           FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
           FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
@@ -72,4 +157,10 @@ jobs:
             artifacts/*.dSYM.zip
             smart-meal-source.txt
             smart-meal-verification.json
+            loopfollow/LoopFollow.ipa
+            loopfollow/artifacts/*.dSYM.zip
+            loopfollow/smart-meal-source.txt
+            loopfollow/smart-meal-verification.json
+            loopfollow/testflight-status.json
+            loopfollow/trio-testflight-status.json
           retention-days: 14
