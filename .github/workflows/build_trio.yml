@@ -8,6 +8,11 @@ on:
         type: boolean
         required: true
         default: false
+      invite_email:
+        description: Explicitly authorized recipient for LoopFollow-only Marketing invitation (optional)
+        type: string
+        required: false
+        default: ""
       publish:
         description: Upload the verified build to the existing TestFlight app
         type: boolean
@@ -24,7 +29,7 @@ concurrency:
 jobs:
   build:
     if: github.ref == 'refs/heads/feature/smart-meal-receiver'
-    name: Build and verify Smart Meal receiver
+    name: Build and verify Smart Meal update
     runs-on: macos-26
     timeout-minutes: 90
     steps:
@@ -44,7 +49,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: shamiln876/LoopFollow
-          ref: 1c2228cbf89b9dd50a16e4e77164ef7d4199bb77
+          ref: 9ad038ea4bd21b98fc979520b8a6bd7020859e44
           path: loopfollow
           submodules: recursive
           persist-credentials: false
@@ -52,7 +57,7 @@ jobs:
         if: inputs.build_loopfollow
         working-directory: loopfollow
         run: |
-          test "$(git rev-parse HEAD)" = "1c2228cbf89b9dd50a16e4e77164ef7d4199bb77"
+          test "$(git rev-parse HEAD)" = "9ad038ea4bd21b98fc979520b8a6bd7020859e44"
           git rev-parse HEAD > smart-meal-source.txt
       - name: Select existing Xcode version
         run: sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer
@@ -107,6 +112,16 @@ jobs:
             loopfollow/testflight-before.json
             loopfollow/trio-testflight-status.json
           retention-days: 1
+      - name: Invite authorized family member with LoopFollow-only access
+        continue-on-error: true
+        if: inputs.build_loopfollow && inputs.invite_email != ''
+        working-directory: loopfollow
+        run: bundle exec ruby ../scripts/invite-loopfollow-internal-user.rb family-invitation-status.json
+        env:
+          INVITATION_EMAIL: ${{ inputs.invite_email }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
       - name: Build reviewed LoopFollow with existing signing assets
         if: inputs.build_loopfollow
         working-directory: loopfollow
@@ -123,6 +138,7 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_READONLY: "true"
           MINIMUM_BUILD_NUMBER: "20"
+          USE_EXISTING_TRIO_CERTIFICATE: "true"
       - name: Verify LoopFollow source, identity and distribution signing
         if: inputs.build_loopfollow
         working-directory: loopfollow
@@ -162,5 +178,6 @@ jobs:
             loopfollow/smart-meal-source.txt
             loopfollow/smart-meal-verification.json
             loopfollow/testflight-status.json
+            loopfollow/family-invitation-status.json
             loopfollow/trio-testflight-status.json
           retention-days: 14
