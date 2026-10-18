@@ -19,7 +19,7 @@ end
 apps = get.call("/v1/apps", {"filter[bundleId]" => bundle}).fetch("data")
 raise "Expected existing app" unless apps.length == 1
 app = apps.first
-builds = get.call("/v1/apps/#{app.fetch('id')}/builds", {"limit" => 5}).fetch("data")
+builds = get.call("/v1/apps/#{app.fetch('id')}/builds", {"limit" => 5, "sort" => "-uploadedDate"}).fetch("data")
 groups = get.call("/v1/apps/#{app.fetch('id')}/betaGroups", {"limit" => 200}).fetch("data")
 result = {bundleID: bundle, appID: app.fetch("id"), builds: [], groups: groups.map { |g| {id: g.fetch("id"), internal: g.fetch("attributes")["isInternalGroup"], automaticDistribution: g.fetch("attributes")["hasAccessToAllBuilds"]} }}
 builds.each do |build|

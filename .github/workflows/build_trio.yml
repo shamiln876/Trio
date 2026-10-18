@@ -8,6 +8,11 @@ on:
         type: boolean
         required: true
         default: false
+      status_only:
+        description: Read family TestFlight status without building or uploading
+        type: boolean
+        required: true
+        default: false
       invite_email:
         description: Explicitly authorized recipient for LoopFollow-only Marketing invitation (optional)
         type: string
@@ -41,7 +46,13 @@ jobs:
       - name: Confirm requested source
         env:
           EXPECTED_SOURCE: ${{ github.sha }}
+          STATUS_ONLY: ${{ inputs.status_only }}
+          BUILD_FAMILY: ${{ inputs.build_loopfollow }}
         run: |
+          if [ "$STATUS_ONLY" = "true" ] && [ "$BUILD_FAMILY" != "true" ]; then
+            echo "Status-only mode requires the family LoopFollow selection. No build was started."
+            exit 1
+          fi
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           git rev-parse HEAD > smart-meal-source.txt
       - name: Checkout reviewed LoopFollow source
@@ -62,11 +73,11 @@ jobs:
       - name: Select existing Xcode version
         run: sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer
       - name: Install pinned project dependencies
-        if: ${{ !inputs.build_loopfollow }}
+        if: ${{ !inputs.build_loopfollow && !inputs.status_only }}
         run: bundle install
       # Existing signing assets only. No upstream sync, certificate creation or revocation.
       - name: Build signed App Store archive
-        if: ${{ !inputs.build_loopfollow }}
+        if: ${{ !inputs.build_loopfollow && !inputs.status_only }}
         run: |
           test "$TEAMID" = "D3GG62L9X8"
           bundle exec fastlane build_trio
@@ -79,10 +90,10 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_READONLY: "true"
       - name: Verify source, identity and distribution signing
-        if: ${{ !inputs.build_loopfollow }}
+        if: ${{ !inputs.build_loopfollow && !inputs.status_only }}
         run: python3 scripts/verify-smart-meal-distribution.py Trio.ipa --source "$(cat smart-meal-source.txt)" --output smart-meal-verification.json
       - name: Upload verified build to existing TestFlight app
-        if: inputs.publish && !inputs.build_loopfollow
+        if: inputs.publish && !inputs.build_loopfollow && !inputs.status_only
         run: bundle exec fastlane release
         env:
           TEAMID: ${{ secrets.TEAMID }}
@@ -123,7 +134,7 @@ jobs:
           FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
       - name: Build reviewed LoopFollow with existing signing assets
-        if: inputs.build_loopfollow
+        if: inputs.build_loopfollow && !inputs.status_only
         working-directory: loopfollow
         run: |
           test "$TEAMID" = "D3GG62L9X8"
@@ -140,11 +151,11 @@ jobs:
           MINIMUM_BUILD_NUMBER: "20"
           USE_EXISTING_TRIO_CERTIFICATE: "true"
       - name: Verify LoopFollow source, identity and distribution signing
-        if: inputs.build_loopfollow
+        if: inputs.build_loopfollow && !inputs.status_only
         working-directory: loopfollow
         run: python3 Scripts/verify-smart-meal-distribution.py LoopFollow.ipa --source "$(cat smart-meal-source.txt)" --output smart-meal-verification.json
       - name: Upload reviewed LoopFollow to its existing TestFlight app
-        if: inputs.publish && inputs.build_loopfollow
+        if: inputs.publish && inputs.build_loopfollow && !inputs.status_only
         working-directory: loopfollow
         run: bundle exec fastlane release
         env:
@@ -155,7 +166,7 @@ jobs:
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
           WAIT_FOR_PROCESSING: "true"
       - name: Read LoopFollow tester-group and Apple processing status
-        if: inputs.publish && inputs.build_loopfollow
+        if: inputs.publish && inputs.build_loopfollow && !inputs.status_only
         working-directory: loopfollow
         run: bundle exec ruby ../scripts/testflight-read-status.rb com.D3GG62L9X8.LoopFollow testflight-status.json
         env:
