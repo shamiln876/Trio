@@ -19,7 +19,22 @@ end
 apps = get.call("/v1/apps", {"filter[bundleId]" => bundle}).fetch("data")
 raise "Expected existing app" unless apps.length == 1
 app = apps.first
-builds = get.call("/v1/apps/#{app.fetch('id')}/builds", {"limit" => 5, "sort" => "-uploadedDate"}).fetch("data")
+# The relationship endpoint does not accept sort. Read the existing builds,
+# then select the newest locally; never mistake an old first page for latest.
+builds = []
+path = "/v1/apps/#{app.fetch('id')}/builds"
+query = {"limit" => 200}
+loop do
+  page = get.call(path, query)
+  builds.concat(page.fetch("data"))
+  following = page.fetch("links", {})["next"]
+  break unless following
+  next_uri = URI(following)
+  raise "Unexpected pagination host" unless next_uri.host == "api.appstoreconnect.apple.com"
+  path = next_uri.path
+  query = URI.decode_www_form(next_uri.query || "").to_h
+end
+builds = builds.sort_by { |b| b.fetch("attributes")["uploadedDate"].to_s }.reverse.first(5)
 groups = get.call("/v1/apps/#{app.fetch('id')}/betaGroups", {"limit" => 200}).fetch("data")
 result = {bundleID: bundle, appID: app.fetch("id"), builds: [], groups: groups.map { |g| {id: g.fetch("id"), internal: g.fetch("attributes")["isInternalGroup"], automaticDistribution: g.fetch("attributes")["hasAccessToAllBuilds"]} }}
 builds.each do |build|
