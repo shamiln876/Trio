@@ -21,7 +21,7 @@ request = lambda do |path, body = nil|
   raise "Invitation request failed: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
   JSON.parse(response.body)
 end
-result = {recipientSHA256: Digest::SHA256.hexdigest(email), appID: app_id, otherAppsGranted: false, provisioningAllowed: false}
+result = {recipientSHA256: Digest::SHA256.hexdigest(email), appID: app_id, otherAppsGranted: nil, provisioningAllowed: nil}
 begin
   app = request.call("/v1/apps/#{app_id}").fetch("data")
   raise "Unexpected app identity" unless app.fetch("attributes")["bundleId"] == bundle
@@ -39,16 +39,18 @@ begin
       invitation = request.call("/v1/userInvitations", body).fetch("data")
       result[:newInvitationSent] = true
     end
-    attrs = invitation.fetch("attributes")
+    query = URI.encode_www_form({"include" => "visibleApps", "fields[userInvitations]" => "email,roles,allAppsVisible,provisioningAllowed,visibleApps"})
+    # List/create responses can omit fields. Verify the full invitation resource.
+    verified = request.call("/v1/userInvitations/#{invitation.fetch('id')}?#{query}").fetch("data")
+    attrs = verified.fetch("attributes")
+    visible = verified.fetch("relationships").fetch("visibleApps").fetch("data").map { |a| a.fetch("id") }
+    result[:reportedScope] = {allAppsVisible: attrs["allAppsVisible"], provisioningAllowed: attrs["provisioningAllowed"], visibleAppIDs: visible, roles: attrs["roles"]}
     raise "Unexpected invitation role" unless attrs["roles"] == ["MARKETING"]
     raise "Unexpected all-app access" unless attrs["allAppsVisible"] == false
-    raise "Unexpected provisioning access" unless attrs.fetch("provisioningAllowed", false) == false
-    # Apple supports included relationship data on the invitation resource;
-    # it does not expose the direct /visibleApps endpoint used previously.
-    verified = request.call("/v1/userInvitations/#{invitation.fetch('id')}?include=visibleApps").fetch("data")
-    raise "Invitation changed during verification" unless verified.fetch("attributes").slice("roles", "allAppsVisible", "provisioningAllowed") == attrs.slice("roles", "allAppsVisible", "provisioningAllowed")
-    visible = verified.fetch("relationships").fetch("visibleApps").fetch("data").map { |a| a.fetch("id") }
+    raise "Unexpected provisioning access" unless attrs["provisioningAllowed"] == false
     raise "Unexpected visible apps" unless visible == [app_id]
+    result[:otherAppsGranted] = false
+    result[:provisioningAllowed] = false
     result[:invitationID] = invitation.fetch("id")
     result[:status] = "pending_recipient_acceptance"
     result[:roles] = attrs["roles"]
