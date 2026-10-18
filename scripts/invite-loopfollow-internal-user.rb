@@ -46,7 +46,9 @@ begin
     visible = verified.fetch("relationships").fetch("visibleApps").fetch("data").map { |a| a.fetch("id") }
     result[:reportedScope] = {allAppsVisible: attrs["allAppsVisible"], provisioningAllowed: attrs["provisioningAllowed"], visibleAppIDs: visible, roles: attrs["roles"]}
     raise "Unexpected invitation role" unless attrs["roles"] == ["MARKETING"]
-    raise "Unexpected all-app access" unless attrs["allAppsVisible"] == false
+    # Apple omits this optional flag on pending invitation reads. The explicit
+    # visibleApps relationship must still contain exactly LoopFollow below.
+    raise "Unexpected all-app access" unless [false, nil].include?(attrs["allAppsVisible"])
     raise "Unexpected provisioning access" unless attrs["provisioningAllowed"] == false
     raise "Unexpected visible apps" unless visible == [app_id]
     result[:otherAppsGranted] = false
