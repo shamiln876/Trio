@@ -138,6 +138,36 @@ private struct PostMealSMBConfirmed: Codable, Equatable {
     let deliveredUnits: Double
 }
 
+/// Pure, testable verification applied by APSManager before any confirmed
+/// post-meal timer. The dose must have been observed in pump status first.
+struct PostMealSMBPumpHistoryVerifier {
+    static func matches(
+        requestedAt: Date,
+        requestedUnits: Double,
+        observedPumpDoseStartAt: Date?,
+        deliveredAt: Date,
+        deliveredUnits: Double,
+        programmedUnits: Double,
+        isMutable: Bool,
+        isSMB: Bool,
+        isExternal: Bool,
+        now: Date
+    ) -> Bool {
+        guard let observedStart = observedPumpDoseStartAt,
+              !isMutable, !isSMB, !isExternal,
+              requestedUnits.isFinite, requestedUnits > 0,
+              deliveredUnits.isFinite, deliveredUnits > 0,
+              programmedUnits.isFinite, programmedUnits > 0,
+              requestedAt <= now, observedStart <= now, deliveredAt <= now,
+              (-15 ... 240).contains(deliveredAt.timeIntervalSince(requestedAt)),
+              abs(deliveredAt.timeIntervalSince(observedStart)) <= 1,
+              abs(deliveredUnits - requestedUnits) <= 0.051,
+              abs(programmedUnits - requestedUnits) <= 0.051
+        else { return false }
+        return true
+    }
+}
+
 final class BaseAPSManager: APSManager, Injectable {
     private let processQueue = DispatchQueue(label: "BaseAPSManager.processQueue")
     @Injected() private var storage: FileStorage!
@@ -734,18 +764,23 @@ final class BaseAPSManager: APSManager, Injectable {
             guard let events = try? ctx.fetch(request) else { return [] }
             return events.compactMap { event -> (String, Date, Double)? in
                 guard event.type == PumpEventStored.EventType.bolus.rawValue,
-                      !event.isMutable, let bolus = event.bolus,
-                      !bolus.isSMB, !bolus.isExternal,
+                      let bolus = event.bolus,
                       let id = (event.syncIdentifier?.isEmpty == false ? event.syncIdentifier : event.id), !id.isEmpty,
                       let delivered = bolus.amount?.doubleValue,
                       let programmed = bolus.programmedAmount?.doubleValue,
                       let timestamp = event.timestamp,
-                      delivered > 0, delivered.isFinite, programmed.isFinite,
-                      abs(delivered - intent.requestedUnits) <= 0.051,
-                      abs(programmed - intent.requestedUnits) <= 0.051,
-                      abs(timestamp.timeIntervalSince(observedStart)) <= 1,
-                      (-15 ... 240).contains(timestamp.timeIntervalSince(intent.requestedAt)),
-                      timestamp <= now
+                      PostMealSMBPumpHistoryVerifier.matches(
+                          requestedAt: intent.requestedAt,
+                          requestedUnits: intent.requestedUnits,
+                          observedPumpDoseStartAt: observedStart,
+                          deliveredAt: timestamp,
+                          deliveredUnits: delivered,
+                          programmedUnits: programmed,
+                          isMutable: event.isMutable,
+                          isSMB: bolus.isSMB,
+                          isExternal: bolus.isExternal,
+                          now: now
+                      )
                 else { return nil }
                 return (id, timestamp, delivered)
             }
