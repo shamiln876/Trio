@@ -19,7 +19,7 @@ The user explicitly approved pushing both named development branches to the exis
 - Standalone policy: 26 passing tests, including default ON and explicit OFF.
 - Exact production matcher and gate definitions extracted from APSManager: 8 passing tests (`python3 scripts/test-post-meal-smb-runtime.py`). These do not exercise the asynchronous Core Data adapter.
 - Actual sender encoder / Trio decoder / receiver integration: 4 passing tests, including toggle command, correlated status, exact replay and reordered-disable rejection. Run matching LoopFollow `Scripts/test-smart-meal-integration.sh /path/to/Trio`.
-- The full unsigned Trio and LoopFollow arm64 simulator builds passed. The LoopFollow screen test passed for ON/OFF/unsupported controller states (one test with three launches). Native Trio settings tests and checks of the updated +35-minute sender schedule are being completed; consult the final handoff for their result. Device delivery integration remains unverified.
+- The full unsigned Trio and LoopFollow arm64 simulator builds passed. The LoopFollow screen test passed for ON/OFF/unsupported controller states (one test with three launches). Final native Trio run: 14 settings/gate tests passed, zero failures/skips, after the initiation-anchor fix. The updated +35-minute sender suites passed: 50 calculation/delivery tests and 4 cross-app tests. The native +35 screen test is being retried separately; consult the final handoff. Device delivery integration remains unverified.
 
 ## Continuous wait and delivery semantics
 
