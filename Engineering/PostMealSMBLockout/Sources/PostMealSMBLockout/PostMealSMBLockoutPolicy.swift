@@ -145,11 +145,20 @@ public struct VerifiedMealBolusMatcher: Sendable {
         public let transactionID: String
         public let requestedAt: Date
         public let requestedUnits: Double
+        /// Trusted link established by the pump transaction/pump-history layer.
+        /// No link means we cannot distinguish a meal from a same-sized correction.
+        public let linkedPumpEventID: String?
 
-        public init(transactionID: String, requestedAt: Date, requestedUnits: Double) {
+        public init(
+            transactionID: String,
+            requestedAt: Date,
+            requestedUnits: Double,
+            linkedPumpEventID: String? = nil
+        ) {
             self.transactionID = transactionID
             self.requestedAt = requestedAt
             self.requestedUnits = requestedUnits
+            self.linkedPumpEventID = linkedPumpEventID
         }
     }
 
@@ -178,6 +187,7 @@ public struct VerifiedMealBolusMatcher: Sendable {
         }
     }
 
+    /// Requires a trusted event-ID link, not merely an amount and timestamp.
     /// Only a unique, finalized, full-dose match may start the meal timer.
     /// Rejected/partial/cancelled/ambiguous/unmatched doses must be reviewed
     /// rather than silently disabling other sources of insulin.
@@ -187,13 +197,14 @@ public struct VerifiedMealBolusMatcher: Sendable {
         now: Date
     ) -> PostMealSMBLockoutPolicy.Event? {
         guard !intent.transactionID.isEmpty,
+              let linkedID = intent.linkedPumpEventID, !linkedID.isEmpty,
               intent.requestedUnits.isFinite, intent.requestedUnits > 0,
               intent.requestedAt <= now,
               intent.requestedAt.timeIntervalSince(now) >= -24 * 60 * 60
         else { return nil }
 
         let candidates = pumpHistory.filter { delivery in
-            guard !delivery.eventID.isEmpty, delivery.isFinal, !delivery.isAutomaticSMB,
+            guard delivery.eventID == linkedID, delivery.isFinal, !delivery.isAutomaticSMB,
                   delivery.deliveredUnits.isFinite, delivery.programmedUnits.isFinite,
                   delivery.deliveredUnits > 0, delivery.programmedUnits > 0,
                   delivery.timestamp <= now,
