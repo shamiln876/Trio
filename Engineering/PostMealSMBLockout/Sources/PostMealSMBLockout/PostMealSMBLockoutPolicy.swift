@@ -6,7 +6,7 @@ import Foundation
 /// In a future Trio integration, only verified pump-history delivery of a
 /// separately identified MEAL bolus may create a lockout anchor. Carb entries,
 /// correction boluses, SMBs, and remote command acknowledgments must not.
-public struct PostMealSMBLockoutPolicy: Sendable {
+public struct PostMealSMBLockoutPolicy: Codable, Sendable {
     public struct Configuration: Codable, Equatable, Sendable {
         /// A new feature is OFF until tested and explicitly enabled.
         public var enabled: Bool
@@ -45,10 +45,14 @@ public struct PostMealSMBLockoutPolicy: Sendable {
     public struct State: Codable, Equatable, Sendable {
         public var anchor: Event?
         public var consumedEventIDs: [String]
+        /// Earliest delivery timestamp eligible after an explicit ON transition.
+        /// Prevents delayed pump history from resurrecting an earlier meal.
+        public var enabledSince: Date?
 
-        public init(anchor: Event? = nil, consumedEventIDs: [String] = []) {
+        public init(anchor: Event? = nil, consumedEventIDs: [String] = [], enabledSince: Date? = nil) {
             self.anchor = anchor
             self.consumedEventIDs = consumedEventIDs
+            self.enabledSince = enabledSince
         }
     }
 
@@ -64,10 +68,20 @@ public struct PostMealSMBLockoutPolicy: Sendable {
         }
     }
 
-    public var configuration: Configuration
+    public private(set) var configuration: Configuration
 
     public init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
+    }
+
+    /// Apply an explicit user ON/OFF transition, preserving preference until
+    /// the next transition. Both transitions invalidate any old meal anchor.
+    /// Pure policy only: no UI, algorithm integration, or pump commands.
+    public mutating func setEnabled(_ enabled: Bool, state: inout State, now: Date) {
+        guard configuration.enabled != enabled else { return }
+        configuration.enabled = enabled
+        state.anchor = nil
+        state.enabledSince = enabled ? now : nil
     }
 
     /// Idempotent ingestion. Record only real, delivered, classified MEAL boluses.
@@ -86,6 +100,10 @@ public struct PostMealSMBLockoutPolicy: Sendable {
         if next.consumedEventIDs.count > 256 {
             next.consumedEventIDs.removeFirst(next.consumedEventIDs.count - 256)
         }
+        // Retain a stable ID even while OFF, but never activate an old meal.
+        guard configuration.enabled, event.occurredAt >= (next.enabledSince ?? .distantPast) else {
+            return next
+        }
         if let existing = next.anchor, event.occurredAt < existing.occurredAt {
             return next
         }
@@ -103,7 +121,8 @@ public struct PostMealSMBLockoutPolicy: Sendable {
               let anchor = state.anchor,
               anchor.kind == .verifiedMealBolusDelivered,
               anchor.deliveredUnits.isFinite, anchor.deliveredUnits > 0,
-              anchor.occurredAt <= now
+              anchor.occurredAt <= now,
+              anchor.occurredAt >= (state.enabledSince ?? .distantPast)
         else { return Decision(shouldSuppressSMB: false, expiresAt: nil, remainingSeconds: 0) }
 
         let expiration = anchor.occurredAt.addingTimeInterval(configuration.durationSeconds)
