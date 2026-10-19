@@ -176,4 +176,41 @@ import Testing
         #expect(determination?.units == nil || determination?.units == 0)
         #expect(determination?.reason.contains("Waiting") ?? false)
     }
+
+    @Test("Post-meal block suppresses a real SMB decision without cancelling determination")
+    func testPostMealPermissionSuppressesSMB() throws {
+        let inputs = buildInputs(lastBolusOffsetMinutes: 10)
+        let permitted = try DeterminationGenerator.determineBasal(
+            profile: inputs.profile,
+            preferences: inputs.preferences,
+            currentTemp: inputs.currentTemp,
+            iobData: inputs.iobData,
+            mealData: inputs.mealData,
+            autosensData: inputs.autosensData,
+            reservoirData: inputs.reservoirData,
+            glucoseStatus: inputs.glucoseStatus,
+            microBolusAllowed: true,
+            trioCustomOrefVariables: inputs.trioCustomOrefVariables,
+            currentTime: inputs.currentTime
+        )
+        let blocked = try DeterminationGenerator.determineBasal(
+            profile: inputs.profile,
+            preferences: inputs.preferences,
+            currentTemp: inputs.currentTemp,
+            iobData: inputs.iobData,
+            mealData: inputs.mealData,
+            autosensData: inputs.autosensData,
+            reservoirData: inputs.reservoirData,
+            glucoseStatus: inputs.glucoseStatus,
+            microBolusAllowed: false,
+            trioCustomOrefVariables: inputs.trioCustomOrefVariables,
+            currentTime: inputs.currentTime
+        )
+        #expect(permitted != nil)
+        #expect(permitted?.units ?? 0 > 0)
+        #expect(blocked != nil)
+        #expect(blocked?.units == nil || blocked?.units == 0)
+        #expect(!(blocked?.reason.contains("Microbolusing") ?? false))
+    }
+
 }
