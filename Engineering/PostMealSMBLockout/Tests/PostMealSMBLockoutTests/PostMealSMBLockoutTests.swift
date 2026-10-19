@@ -1,5 +1,5 @@
-import XCTest
 @testable import PostMealSMBLockout
+import XCTest
 
 final class PostMealSMBLockoutTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -34,14 +34,22 @@ final class PostMealSMBLockoutTests: XCTestCase {
             .correctionBolusDelivered, .automaticSMBDelivered, .remoteBolusCommandAcknowledged
         ]
         for kind in notMeals {
-            let state = on.applying(.init(id: "id-\(kind)", kind: kind, occurredAt: now, deliveredUnits: 4.2), to: .init(), now: now)
+            let state = on.applying(
+                .init(id: "id-\(kind)", kind: kind, occurredAt: now, deliveredUnits: 4.2),
+                to: .init(),
+                now: now
+            )
             XCTAssertFalse(on.decision(state: state, now: now).shouldSuppressSMB, "kind: \(kind)")
         }
     }
 
     func testDelayedCarbEntryDoesNotExtendLockout() {
         let state = on.applying(meal(now), to: .init(), now: now)
-        let delayed = PostMealSMBLockoutPolicy.Event(id: "carbs-later", kind: .delayedCarbsEntered, occurredAt: now.addingTimeInterval(1700))
+        let delayed = PostMealSMBLockoutPolicy.Event(
+            id: "carbs-later",
+            kind: .delayedCarbsEntered,
+            occurredAt: now.addingTimeInterval(1700)
+        )
         let later = on.applying(delayed, to: state, now: now.addingTimeInterval(1700))
         XCTAssertFalse(on.decision(state: later, now: now.addingTimeInterval(1800)).shouldSuppressSMB)
     }
@@ -63,7 +71,12 @@ final class PostMealSMBLockoutTests: XCTestCase {
     func testFutureOrZeroInsulinEventDoesNotStart() {
         let future = on.applying(meal(now.addingTimeInterval(300)), to: .init(), now: now)
         XCTAssertFalse(on.decision(state: future, now: now).shouldSuppressSMB)
-        let zero = PostMealSMBLockoutPolicy.Event(id: "zero", kind: .verifiedMealBolusDelivered, occurredAt: now, deliveredUnits: 0)
+        let zero = PostMealSMBLockoutPolicy.Event(
+            id: "zero",
+            kind: .verifiedMealBolusDelivered,
+            occurredAt: now,
+            deliveredUnits: 0
+        )
         XCTAssertFalse(on.decision(state: on.applying(zero, to: .init(), now: now), now: now).shouldSuppressSMB)
     }
 
@@ -123,7 +136,6 @@ final class PostMealSMBLockoutTests: XCTestCase {
         XCTAssertTrue(policy.decision(state: state, now: now.addingTimeInterval(1799)).shouldSuppressSMB)
         XCTAssertFalse(policy.decision(state: state, now: now.addingTimeInterval(1800)).shouldSuppressSMB)
     }
-
 
     func testMatchingFinalPumpDeliveryRequiresUniqueMealIntent() {
         let matcher = VerifiedMealBolusMatcher()
@@ -214,5 +226,4 @@ final class PostMealSMBLockoutTests: XCTestCase {
         )
         XCTAssertNil(matcher.confirmedEvent(for: intent, pumpHistory: [future], now: now.addingTimeInterval(20)))
     }
-
 }

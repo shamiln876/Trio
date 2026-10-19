@@ -42,22 +42,22 @@ extension TrioRemoteControl {
 
         let bolusUnits = Double(truncating: bolusAmount as NSNumber)
         let resultHandler: (Bool, String) -> Void = { [weak self] success, message in
-                guard let self = self else { return }
-                Task {
-                    if success {
-                        await self.logSuccess(
-                            "Remote command processed successfully. \(payload.humanReadableDescription())",
-                            payload: payload,
-                            customNotificationMessage: "Bolus started"
-                        )
-                    } else {
-                        await self.logError(
-                            message,
-                            payload: payload
-                        )
-                    }
+            guard let self = self else { return }
+            Task {
+                if success {
+                    await self.logSuccess(
+                        "Remote command processed successfully. \(payload.humanReadableDescription())",
+                        payload: payload,
+                        customNotificationMessage: "Bolus started"
+                    )
+                } else {
+                    await self.logError(
+                        message,
+                        payload: payload
+                    )
                 }
             }
+        }
         if mealAssociated {
             await apsManager.enactMealBolus(amount: bolusUnits, callback: resultHandler)
         } else {

@@ -135,7 +135,6 @@ public struct PostMealSMBLockoutPolicy: Codable, Sendable {
     }
 }
 
-
 /// Correlates a *declared meal intent* with finalized pump history.
 /// This is not a pump-command acknowledgement and must never be used to infer
 /// that an attempted bolus completed without an immutable history record.

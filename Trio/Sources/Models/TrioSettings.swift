@@ -375,7 +375,8 @@ extension TrioSettings: Decodable {
         if let block = try? container.decode(Bool.self, forKey: .postMealSMBLockoutEnabled) {
             settings.postMealSMBLockoutEnabled = block
         }
-        settings.postMealSMBLockoutRevision = (try? container.decode(String.self, forKey: .postMealSMBLockoutRevision)) ?? "initial"
+        settings
+            .postMealSMBLockoutRevision = (try? container.decode(String.self, forKey: .postMealSMBLockoutRevision)) ?? "initial"
 
         if let garminWatchface = try? container.decode(GarminWatchface.self, forKey: .garminWatchface) {
             settings.garminWatchface = garminWatchface

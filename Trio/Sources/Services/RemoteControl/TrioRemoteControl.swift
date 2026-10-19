@@ -104,14 +104,14 @@ class TrioRemoteControl: Injectable {
     }
 }
 
-
 extension TrioRemoteControl {
-    @MainActor
-    private func applyPostMealSMBSetting(_ request: PostMealSMBSettingRequest) throws {
+    @MainActor  private func applyPostMealSMBSetting(_ request: PostMealSMBSettingRequest) throws {
         var current = settings.settings
-        let updated = try request.applying(to: PostMealSMBStatus(enabled: current.postMealSMBLockoutEnabled,
-                                                                revision: current.postMealSMBLockoutRevision,
-                                                                durationMinutes: 30))
+        let updated = try request.applying(to: PostMealSMBStatus(
+            enabled: current.postMealSMBLockoutEnabled,
+            revision: current.postMealSMBLockoutRevision,
+            durationMinutes: 30
+        ))
         current.postMealSMBLockoutEnabled = updated.enabled
         current.postMealSMBLockoutRevision = updated.revision
         settings.settings = current

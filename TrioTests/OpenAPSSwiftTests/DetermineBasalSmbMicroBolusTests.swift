@@ -177,8 +177,9 @@ import Testing
         #expect(determination?.reason.contains("Waiting") ?? false)
     }
 
-    @Test("Post-meal block suppresses a real SMB decision without cancelling determination")
-    func testPostMealPermissionSuppressesSMB() throws {
+    @Test(
+        "Post-meal block suppresses a real SMB decision without cancelling determination"
+    )  func testPostMealPermissionSuppressesSMB() throws {
         let inputs = buildInputs(lastBolusOffsetMinutes: 10)
         let permitted = try DeterminationGenerator.determineBasal(
             profile: inputs.profile,
@@ -212,5 +213,4 @@ import Testing
         #expect(blocked?.units == nil || blocked?.units == 0)
         #expect(!(blocked?.reason.contains("Microbolusing") ?? false))
     }
-
 }
