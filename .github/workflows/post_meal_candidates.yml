@@ -9,9 +9,9 @@ permissions:
   contents: read
 concurrency:
   group: postmeal-release-candidates
-  cancel-in-progress: false
+  cancel-in-progress: true
 env:
-  LOOPFOLLOW_SOURCE: 91b711e466ae7a74cd73b54145580c178c3ddf40
+  LOOPFOLLOW_SOURCE: 5265ac22aae73f6b8d39cd008861f2c08fcbfbba
   CI: 'true'
 jobs:
   verify-trio:
