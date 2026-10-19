@@ -20,6 +20,8 @@ extension TrioRemoteControl {
 
     func smartMealStatus(calculationDate: Date?) async -> SmartMealReceiverStatus? {
         guard let calculationDate, let receiver = SmartMealReceiver.shared else { return nil }
+        let aps = await TrioApp.resolver.resolve(APSManager.self)
+        let waitStatus = await aps?.postMealSMBStatus()
         return SmartMealReceiverStatus(
             protocolVersion: 1,
             generatedAt: Date().timeIntervalSince1970,
@@ -28,7 +30,12 @@ extension TrioRemoteControl {
             enabled: UserDefaults.standard.bool(forKey: "isTrioRemoteControlEnabled"),
             configuration: await smartMealConfiguration(),
             receipts: await receiver.recent(),
-            allowsLowPredictionReview: true
+            allowsLowPredictionReview: true,
+            postMealSMB: waitStatus ?? PostMealSMBStatus(
+                enabled: settings.settings.postMealSMBLockoutEnabled,
+                revision: settings.settings.postMealSMBLockoutRevision,
+                durationMinutes: 30
+            )
         )
     }
 
@@ -124,8 +131,13 @@ extension TrioRemoteControl {
         guard abs(values.0.timeIntervalSince1970 - request.calculationAt) < 1,
               (0 ... 600).contains(now.timeIntervalSince(values.0)),
               (0 ... 600).contains(now.timeIntervalSince(values.3)),
-              SmartMealForecastPolicy.permits(glucose: Decimal(values.4), minimum: values.1, guardMinimum: values.2,
-                                              bolus: request.bolusAmount, acknowledged: request.lowPredictionAcknowledged == true)
+              SmartMealForecastPolicy.permits(
+                  glucose: Decimal(values.4),
+                  minimum: values.1,
+                  guardMinimum: values.2,
+                  bolus: request.bolusAmount,
+                  acknowledged: request.lowPredictionAcknowledged == true
+              )
         else { throw SmartMealError.contextChanged }
         let result = await calculator.handleBolusCalculation(
             carbs: Decimal(request.totalCarbs),

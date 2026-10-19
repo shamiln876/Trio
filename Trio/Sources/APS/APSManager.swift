@@ -15,6 +15,7 @@ protocol APSManager {
     func markNextLoopUserInitiated()
     func enactBolus(amount: Double, isSMB: Bool, callback: ((Bool, String) -> Void)?) async
     func enactMealBolus(amount: Double, callback: ((Bool, String) -> Void)?) async
+    func postMealSMBStatus() async -> PostMealSMBStatus
     var pumpManager: PumpManagerUI? { get set }
     var bluetoothManager: BluetoothStateManager? { get }
     var pumpDisplayState: CurrentValueSubject<PumpDisplayState?, Never> { get }
@@ -121,26 +122,9 @@ private actor LoopGuard {
     }
 }
 
-/// Durable enough for app restarts, but this experimental integration stays
-/// disabled until explicitly enabled in a validated build.
-private struct PostMealSMBIntent: Codable, Equatable {
-    let id: String
-    let requestedAt: Date
-    let requestedUnits: Double
-    var pumpAcceptedAt: Date?
-    /// Start time of the exact user-initiated bolus observed in pump status
-    /// after the successful command. Nil means no defensible delivery linkage.
-    var observedPumpDoseStartAt: Date?
-}
-private struct PostMealSMBConfirmed: Codable, Equatable {
-    let eventID: String
-    let deliveredAt: Date
-    let deliveredUnits: Double
-}
-
 /// Pure, testable verification applied by APSManager before any confirmed
 /// post-meal timer. The dose must have been observed in pump status first.
-struct PostMealSMBPumpHistoryVerifier {
+enum PostMealSMBPumpHistoryVerifier {
     static func matches(
         requestedAt: Date,
         requestedUnits: Double,
@@ -161,8 +145,8 @@ struct PostMealSMBPumpHistoryVerifier {
               requestedAt <= now, observedStart <= now, deliveredAt <= now,
               (-15 ... 240).contains(deliveredAt.timeIntervalSince(requestedAt)),
               abs(deliveredAt.timeIntervalSince(observedStart)) <= 1,
-              abs(deliveredUnits - requestedUnits) <= 0.051,
-              abs(programmedUnits - requestedUnits) <= 0.051
+              abs(deliveredUnits - programmedUnits) < 0.000001,
+              abs(programmedUnits - requestedUnits) < 0.000001
         else { return false }
         return true
     }
@@ -170,7 +154,7 @@ struct PostMealSMBPumpHistoryVerifier {
 
 /// Single shared predicate for the experimental timer used by both SMB
 /// determination and the final enactment gate. No pump side effects.
-struct PostMealSMBEnactmentGate {
+enum PostMealSMBEnactmentGate {
     static func shouldBlockSMB(
         enabled: Bool,
         confirmedDeliveredAt: Date?,
@@ -179,16 +163,95 @@ struct PostMealSMBEnactmentGate {
     ) -> Bool {
         guard enabled else { return false }
         if let delivered = confirmedDeliveredAt,
-           delivered <= now, now < delivered.addingTimeInterval(30 * 60) {
+           delivered <= now, now < delivered.addingTimeInterval(30 * 60)
+        {
             return true
         }
-        // Provisional protection does NOT establish confirmed delivery.
-        // It expires after two minutes if immutable pump history never arrives.
+        // Pump acceptance starts the meal wait, without claiming full delivery.
+        // Its independent persisted anchor survives delayed or missing history.
         if let accepted = pendingCommandAcceptedAt,
-           accepted <= now, now.timeIntervalSince(accepted) <= 120 {
+           accepted <= now, now < accepted.addingTimeInterval(30 * 60)
+        {
             return true
         }
         return false
+    }
+}
+
+/// A single saved record prevents a crash between a setting marker and timer clear
+/// from reviving an earlier meal. The lock serializes loop, settings and pump callbacks.
+final class PostMealSMBWaitStore {
+    private struct Record: Codable {
+        var enabled: Bool
+        var revision: String
+        var startedAt: Date?
+        var consumedIDs: [String]
+    }
+
+    private let defaults: UserDefaults
+    private let key: String
+    private let lock = NSRecursiveLock()
+
+    init(defaults: UserDefaults = .standard, key: String = "postMealSMBWait.v2") {
+        self.defaults = defaults
+        self.key = key
+    }
+
+    private func read(enabled: Bool, revision: String) -> Record {
+        guard let data = defaults.data(forKey: key),
+              var record = try? JSONDecoder().decode(Record.self, from: data)
+        else {
+            return Record(enabled: enabled, revision: revision, startedAt: nil, consumedIDs: [])
+        }
+        if record.enabled != enabled || record.revision != revision {
+            record.enabled = enabled
+            record.revision = revision
+            record.startedAt = nil
+        }
+        return record
+    }
+
+    private func save(_ record: Record) {
+        // Record consists only of finite Date, Bool and String values; reject invalid
+        // timestamps at the boundary rather than silently storing an invalid date.
+        guard let data = try? JSONEncoder().encode(record) else { return }
+        if defaults.data(forKey: key) != data { defaults.set(data, forKey: key) }
+    }
+
+    func synchronize(enabled: Bool, revision: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        save(read(enabled: enabled, revision: revision))
+    }
+
+    func recordMealResult(success: Bool, id: String, commandRevision: String,
+                          enabled: Bool, revision: String, acceptedAt: Date)
+    {
+        lock.lock()
+        defer { lock.unlock() }
+        var record = read(enabled: enabled, revision: revision)
+        guard success, enabled, commandRevision == revision,
+              !id.isEmpty, acceptedAt.timeIntervalSince1970.isFinite,
+              !record.consumedIDs.contains(id)
+        else {
+            save(record)
+            return
+        }
+        record.consumedIDs = Array((record.consumedIDs + [id]).suffix(5000))
+        record.startedAt = max(record.startedAt ?? acceptedAt, acceptedAt)
+        save(record)
+    }
+
+    func blockUntil(enabled: Bool, revision: String, now: Date) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        let record = read(enabled: enabled, revision: revision)
+        save(record)
+        guard PostMealSMBEnactmentGate.shouldBlockSMB(enabled: record.enabled,
+                                                      confirmedDeliveredAt: nil,
+                                                      pendingCommandAcceptedAt: record.startedAt,
+                                                      now: now), let started = record.startedAt else { return nil }
+        return started.addingTimeInterval(1800)
     }
 }
 
@@ -207,10 +270,8 @@ final class BaseAPSManager: APSManager, Injectable {
     @Injected() private var broadcaster: Broadcaster!
     @Injected() private var trioAlertManager: TrioAlertManager!
     @Persisted(key: "lastLoopStartDate") private var lastLoopStartDate: Date = .distantPast
-    @Persisted(key: "postMealSMBBlockLastEnabled") private var postMealSMBLastEnabled: Bool = false
-    @Persisted(key: "postMealSMBBlockEnabledAt") private var postMealSMBEnabledAt: Date = .distantPast
-    @Persisted(key: "postMealSMBBlockPendingIntent") private var postMealSMBPending: PostMealSMBIntent? = nil
-    @Persisted(key: "postMealSMBBlockConfirmed") private var postMealSMBConfirmed: PostMealSMBConfirmed? = nil
+    private let postMealSMBWaitStore = PostMealSMBWaitStore()
+    private let postMealSMBConfigurationLock = NSRecursiveLock()
     private var lastDosingMode: DosingMode?
     @Persisted(key: "lastLoopDate") var lastLoopDate: Date = .distantPast {
         didSet {
@@ -714,126 +775,61 @@ final class BaseAPSManager: APSManager, Injectable {
         return min(rounded, maxBolus)
     }
 
+    /// Read configuration only after acquiring the state lock. An older queued
+    /// observer cannot overwrite a timer created with a newer settings revision.
+    private func withPostMealConfiguration<Value>(_ body: (TrioSettings) -> Value) -> Value {
+        postMealSMBConfigurationLock.lock()
+        defer { postMealSMBConfigurationLock.unlock() }
+        return body(settingsManager.settings)
+    }
 
-    /// Local/remote user-confirmed MEAL boluses use this entry point.
-    /// A remote acknowledgement or a successful API call is NOT proof of delivery.
+    /// A successful pump callback starts the wait; it does not prove full delivery.
+    /// Actual delivered insulin remains recorded by the existing pump-history path.
     func enactMealBolus(amount: Double, callback: ((Bool, String) -> Void)?) async {
-        guard amount > 0 else { callback?(false, "Invalid meal bolus"); return }
-        synchronizePostMealSMBSetting(now: Date())
+        guard amount > 0 else {
+            callback?(false, "Invalid meal bolus")
+            return
+        }
         let intendedID = UUID().uuidString
-        if settingsManager.settings.postMealSMBLockoutEnabled {
-            postMealSMBPending = PostMealSMBIntent(
-                id: intendedID, requestedAt: Date(),
-                requestedUnits: amount, pumpAcceptedAt: nil,
-                observedPumpDoseStartAt: nil
-            )
+        let commandRevision = withPostMealConfiguration { current in
+            postMealSMBWaitStore.synchronize(enabled: current.postMealSMBLockoutEnabled,
+                                             revision: current.postMealSMBLockoutRevision)
+            return current.postMealSMBLockoutRevision
         }
         await enactBolus(amount: amount, isSMB: false) { [weak self] succeeded, message in
-            if let self, self.postMealSMBPending?.id == intendedID {
-                if succeeded, var pending = self.postMealSMBPending {
-                    pending.pumpAcceptedAt = Date()
-                    // Omnipod DASH exposes the active DoseEntry in pump status,
-                    // including its start time. Link that dose to subsequent
-                    // immutable pump history, not an unrelated same-sized bolus.
-                    if let pump = self.pumpManager,
-                       case let .inProgress(dose) = pump.status.bolusState,
-                       dose.type == .bolus, dose.automatic == false,
-                       abs(dose.programmedUnits - pending.requestedUnits) <= 0.051,
-                       dose.startDate >= pending.requestedAt.addingTimeInterval(-15),
-                       dose.startDate <= Date() {
-                        pending.observedPumpDoseStartAt = dose.startDate
-                    }
-                    self.postMealSMBPending = pending
-                } else if !succeeded {
-                    self.postMealSMBPending = nil
-                }
+            self?.withPostMealConfiguration { current in
+                self?.postMealSMBWaitStore.recordMealResult(success: succeeded, id: intendedID,
+                                                            commandRevision: commandRevision, enabled: current.postMealSMBLockoutEnabled,
+                                                            revision: current.postMealSMBLockoutRevision, acceptedAt: Date())
             }
             callback?(succeeded, message)
         }
     }
 
-    /// Preserve manual user OFF across restarts. A new ON transition can never
-    /// activate an earlier meal (or resurrect an old pending command).
-    private func synchronizePostMealSMBSetting(now: Date) {
-        let enabled = settingsManager.settings.postMealSMBLockoutEnabled
-        guard postMealSMBLastEnabled != enabled else { return }
-        postMealSMBLastEnabled = enabled
-        postMealSMBEnabledAt = now
-        postMealSMBPending = nil
-        postMealSMBConfirmed = nil
-        debug(.apsManager, "Post-meal SMB block explicitly changed to \(enabled ? "ON" : "OFF")")
+    private func synchronizePostMealSMBSetting(now _: Date) {
+        withPostMealConfiguration { current in
+            postMealSMBWaitStore.synchronize(enabled: current.postMealSMBLockoutEnabled,
+                                             revision: current.postMealSMBLockoutRevision)
+        }
     }
 
-    /// Reconcile an explicit meal command with one uniquely matching FINAL
-    /// pump-history entry. Do not confuse submitted/initiated insulin with
-    /// immutable delivered insulin. Unknown, partial or ambiguous events
-    /// do not start a 30-minute confirmed-delivery timer.
-    private func reconcilePostMealSMB(now: Date) async {
-        guard settingsManager.settings.postMealSMBLockoutEnabled,
-              let intent = postMealSMBPending else { return }
-        guard now.timeIntervalSince(intent.requestedAt) <= 300 else {
-            postMealSMBPending = nil
-            return
+    func postMealSMBStatus() async -> PostMealSMBStatus {
+        withPostMealConfiguration { current in
+            let until = postMealSMBWaitStore.blockUntil(enabled: current.postMealSMBLockoutEnabled,
+                                                        revision: current.postMealSMBLockoutRevision, now: Date())
+            return PostMealSMBStatus(enabled: current.postMealSMBLockoutEnabled,
+                                     revision: current.postMealSMBLockoutRevision, durationMinutes: 30,
+                                     blockedUntil: until?.timeIntervalSince1970)
         }
-        // Never infer a meal from dose/time coincidence alone. If an in-progress
-        // pump dose wasn't observed, only the short provisional guard applies.
-        guard let observedStart = intent.observedPumpDoseStartAt else { return }
-        let ctx = CoreDataStack.shared.newTaskContext()
-        ctx.name = "reconcilePostMealSMB"
-        let matches: [(String, Date, Double)] = await ctx.perform {
-            let request = PumpEventStored.fetchRequest() as NSFetchRequest<PumpEventStored>
-            request.predicate = NSPredicate.pumpHistoryLast24h
-            request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
-            request.fetchLimit = 100
-            guard let events = try? ctx.fetch(request) else { return [] }
-            return events.compactMap { event -> (String, Date, Double)? in
-                guard event.type == PumpEventStored.EventType.bolus.rawValue,
-                      let bolus = event.bolus,
-                      let id = (event.syncIdentifier?.isEmpty == false ? event.syncIdentifier : event.id), !id.isEmpty,
-                      let delivered = bolus.amount?.doubleValue,
-                      let programmed = bolus.programmedAmount?.doubleValue,
-                      let timestamp = event.timestamp,
-                      PostMealSMBPumpHistoryVerifier.matches(
-                          requestedAt: intent.requestedAt,
-                          requestedUnits: intent.requestedUnits,
-                          observedPumpDoseStartAt: observedStart,
-                          deliveredAt: timestamp,
-                          deliveredUnits: delivered,
-                          programmedUnits: programmed,
-                          isMutable: event.isMutable,
-                          isSMB: bolus.isSMB,
-                          isExternal: bolus.isExternal,
-                          now: now
-                      )
-                else { return nil }
-                return (id, timestamp, delivered)
-            }
-        }
-        guard matches.count == 1, let match = matches.first else { return }
-        // Explicit recent activation excludes historical deliveries.
-        guard match.1 >= postMealSMBEnabledAt else { return }
-        postMealSMBConfirmed = PostMealSMBConfirmed(
-            eventID: match.0, deliveredAt: match.1, deliveredUnits: match.2
-        )
-        postMealSMBPending = nil
-        debug(.apsManager, "Post-meal SMB block confirmed from final pump-history event")
     }
 
-    /// This check is repeated directly before automatic pump enactment to
-    /// protect against a determination calculated before the meal was confirmed.
-    /// No manual bolus is blocked here. No temp basal decision is changed.
+    /// Repeated after calculation and immediately before each automatic bolus.
+    /// No carbohydrate or FPU entry calls the meal-bolus entry point.
     private func postMealSMBBlockActive(now: Date = Date()) async -> Bool {
-        synchronizePostMealSMBSetting(now: now)
-        guard settingsManager.settings.postMealSMBLockoutEnabled else { return false }
-        await reconcilePostMealSMB(now: now)
-        // Both dosing-calculation permission and enactment call this same
-        // predicate via postMealSMBBlockActive; no change to temp basal logic.
-        return PostMealSMBEnactmentGate.shouldBlockSMB(
-            enabled: settingsManager.settings.postMealSMBLockoutEnabled,
-            confirmedDeliveredAt: postMealSMBConfirmed?.deliveredAt,
-            pendingCommandAcceptedAt: postMealSMBPending?.pumpAcceptedAt,
-            now: now
-        )
+        withPostMealConfiguration { current in
+            postMealSMBWaitStore.blockUntil(enabled: current.postMealSMBLockoutEnabled,
+                                            revision: current.postMealSMBLockoutRevision, now: now) != nil
+        }
     }
 
     func enactBolus(amount: Double, isSMB: Bool, callback: ((Bool, String) -> Void)?) async {
@@ -1007,7 +1003,7 @@ final class BaseAPSManager: APSManager, Injectable {
         // only perform a bolus if smbToDeliver is > 0
         if let smb = smbToDeliver, smb.compare(NSDecimalNumber(value: 0)) == .orderedDescending {
             if await postMealSMBBlockActive(now: Date()) {
-                debug(.apsManager, "Post-meal SMB block suppressed automatic SMB at enactment")
+                debug(.apsManager, "Post-meal SMB block suppressed automatic SMB \(smb) U at enactment")
             } else {
                 try await performBolus(pump: pump, smbToDeliver: smb)
             }
@@ -1123,19 +1119,19 @@ final class BaseAPSManager: APSManager, Injectable {
     /// Computes Time-in-Range statistics. Must be called from within a
     /// `perform`/`performAndWait` block on the context that owns `glucose`.
     private func tir(_ glucose: [GlucoseStored]) -> (TIR: Double, hypos: Double, hypers: Double, normal_: Double) {
-        let justGlucoseArray = glucose.compactMap({ each in Int(each.glucose as Int16) })
+        let justGlucoseArray = glucose.compactMap { each in Int(each.glucose as Int16) }
         let totalReadings = justGlucoseArray.count
         let highLimit = settingsManager.settings.high
         let lowLimit = settingsManager.settings.low
-        let hyperArray = glucose.filter({ $0.glucose >= Int(highLimit) })
-        let hyperReadings = hyperArray.compactMap({ each in each.glucose as Int16 }).count
+        let hyperArray = glucose.filter { $0.glucose >= Int(highLimit) }
+        let hyperReadings = hyperArray.compactMap { each in each.glucose as Int16 }.count
         let hyperPercentage = Double(hyperReadings) / Double(totalReadings) * 100
-        let hypoArray = glucose.filter({ $0.glucose <= Int(lowLimit) })
-        let hypoReadings = hypoArray.compactMap({ each in each.glucose as Int16 }).count
+        let hypoArray = glucose.filter { $0.glucose <= Int(lowLimit) }
+        let hypoReadings = hypoArray.compactMap { each in each.glucose as Int16 }.count
         let hypoPercentage = Double(hypoReadings) / Double(totalReadings) * 100
         // Euglycemic range
-        let normalArray = glucose.filter({ $0.glucose >= 70 && $0.glucose <= 140 })
-        let normalReadings = normalArray.compactMap({ each in each.glucose as Int16 }).count
+        let normalArray = glucose.filter { $0.glucose >= 70 && $0.glucose <= 140 }
+        let normalReadings = normalArray.compactMap { each in each.glucose as Int16 }.count
         let normalPercentage = Double(normalReadings) / Double(totalReadings) * 100
         // TIR
         let tir = 100 - (hypoPercentage + hyperPercentage)
@@ -1156,9 +1152,9 @@ final class BaseAPSManager: APSManager, Injectable {
         // Last date (recent)
         let first = glucose.first?.date ?? Date()
         // Total time in days
-        let numberOfDays = (first - last).timeInterval / 8.64E4
+        let numberOfDays = (first - last).timeInterval / 8.64e4
         let denominator = numberOfDays < 1 ? 1 : numberOfDays
-        let justGlucoseArray = glucose.compactMap({ each in Int(each.glucose as Int16) })
+        let justGlucoseArray = glucose.compactMap { each in Int(each.glucose as Int16) }
         let sumReadings = justGlucoseArray.reduce(0, +)
         let countReadings = justGlucoseArray.count
         let glucoseAverage = Double(sumReadings) / Double(countReadings)
@@ -1203,20 +1199,20 @@ final class BaseAPSManager: APSManager, Injectable {
         // Last date (recent)
         let current = loops.first?.start ?? Date()
         // Total time in days
-        let totalTime = (current - previous).timeInterval / 8.64E4
+        let totalTime = (current - previous).timeInterval / 8.64e4
         //
-        let durationArray = loops.compactMap({ each in each.duration })
+        let durationArray = loops.compactMap { each in each.duration }
         let durationArrayCount = durationArray.count
         let durationAverage = durationArray.reduce(0, +) / Double(durationArrayCount) * 60
         let medianDuration = medianCalculationDouble(array: durationArray) * 60
         let max_duration = (durationArray.max() ?? 0) * 60
         let min_duration = (durationArray.min() ?? 0) * 60
-        let successsNR = loops.compactMap({ each in each.loopStatus }).filter({ each in each!.contains("Success") }).count
+        let successsNR = loops.compactMap { each in each.loopStatus }.filter { each in each!.contains("Success") }.count
         let errorNR = durationArrayCount - successsNR
         let total = Double(successsNR + errorNR) == 0 ? 1 : Double(successsNR + errorNR)
         let successRate: Double? = (Double(successsNR) / total) * 100
         let loopNr = totalTime <= 1 ? total : round(total / (totalTime != 0 ? totalTime : 1))
-        let intervalArray = loops.compactMap({ each in each.interval as Double })
+        let intervalArray = loops.compactMap { each in each.interval as Double }
         let count = intervalArray.count != 0 ? intervalArray.count : 1
         let median_interval = medianCalculationDouble(array: intervalArray)
         let intervalAverage = intervalArray.reduce(0, +) / Double(count)
@@ -1379,7 +1375,7 @@ final class BaseAPSManager: APSManager, Injectable {
                 // Last date (recent)
                 let current = glucoseThreeMonths.first?.date ?? Date()
                 // Total time in days
-                let numberOfDays = (current - previous).timeInterval / 8.64E4
+                let numberOfDays = (current - previous).timeInterval / 8.64e4
 
                 // Get glucose computations for every case
                 let oneDayGlucose = self.glucoseStats(glucose24h)

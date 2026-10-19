@@ -74,7 +74,12 @@ struct TrioSettings: JSON, Equatable, Encodable {
     var homeStatsPanelFace: HomeStatsPanelFace = .timeInRange
     var requireAdjustmentsConfirmation: Bool = false
     /// Experimental: 30-minute post-meal SMB lockout (never enabled on migration).
-    var postMealSMBLockoutEnabled: Bool = false
+    var postMealSMBLockoutRevision: String = "initial"
+    var postMealSMBLockoutEnabled: Bool = true {
+        didSet {
+            if oldValue != postMealSMBLockoutEnabled { postMealSMBLockoutRevision = UUID().uuidString }
+        }
+    }
 
     /// Selected Garmin watchface (Trio or SwissAlpine)
     var garminWatchface: GarminWatchface = .trio
@@ -370,6 +375,8 @@ extension TrioSettings: Decodable {
         if let block = try? container.decode(Bool.self, forKey: .postMealSMBLockoutEnabled) {
             settings.postMealSMBLockoutEnabled = block
         }
+        settings
+            .postMealSMBLockoutRevision = (try? container.decode(String.self, forKey: .postMealSMBLockoutRevision)) ?? "initial"
 
         if let garminWatchface = try? container.decode(GarminWatchface.self, forKey: .garminWatchface) {
             settings.garminWatchface = garminWatchface

@@ -81,13 +81,24 @@ import Testing
             let submitted = meal
             let receipt = try await receiver.execute(submitted, now: now, validate: {
                 try submitted.validate(configuration: configuration, now: now)
-                guard SmartMealForecastPolicy.permits(glucose: 117, minimum: 65, guardMinimum: 29,
-                                                     bolus: submitted.bolusAmount, acknowledged: submitted.lowPredictionAcknowledged == true)
+                guard SmartMealForecastPolicy.permits(
+                    glucose: 117,
+                    minimum: 65,
+                    guardMinimum: 29,
+                    bolus: submitted.bolusAmount,
+                    acknowledged: submitted.lowPredictionAcknowledged == true
+                )
                 else { throw SmartMealError.contextChanged }
             }, store: { await counts.store() }, bolus: { await counts.bolus() })
             #expect(receipt.phase == (acknowledged ? .accepted : .rejected))
             #expect(await counts.values() == (acknowledged ? [1, 1] : [0, 0]))
-            _ = try await receiver.execute(submitted, now: now, validate: {}, store: { await counts.store() }, bolus: { await counts.bolus() })
+            _ = try await receiver.execute(
+                submitted,
+                now: now,
+                validate: {},
+                store: { await counts.store() },
+                bolus: { await counts.bolus() }
+            )
             #expect(await counts.values() == (acknowledged ? [1, 1] : [0, 0]))
         }
     }
@@ -101,7 +112,10 @@ import Testing
         reviewed.lowPredictionAcknowledged = true
         #expect(reviewed.digest != original.digest)
         #expect(try JSONDecoder().decode(SmartMealRequest.self, from: JSONEncoder().encode(reviewed)) == reviewed)
-        #expect(!SmartMealForecastPolicy.permits(glucose: 117, minimum: 53, guardMinimum: 29, bolus: reviewed.bolusAmount, acknowledged: true))
+        #expect(
+            !SmartMealForecastPolicy
+                .permits(glucose: 117, minimum: 53, guardMinimum: 29, bolus: reviewed.bolusAmount, acknowledged: true)
+        )
     }
 
     @Test func concurrentDuplicateCannotRepeatEffectsOrStartAnotherMeal() async throws {

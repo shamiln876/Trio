@@ -78,6 +78,22 @@ class TrioRemoteControl: Injectable {
             await cancelTempTarget(commandPayload)
         case .meal:
             try await handleMealCommand(commandPayload)
+        case .postMealSMB:
+            guard let request = commandPayload.postMealSMB,
+                  (0 ... 120).contains(timeDifference),
+                  commandPayload.smartMeal == nil, commandPayload.bolusAmount == nil,
+                  commandPayload.carbs == nil, commandPayload.fat == nil, commandPayload.protein == nil,
+                  commandPayload.scheduledTime == nil, commandPayload.target == nil,
+                  commandPayload.duration == nil, commandPayload.overrideName == nil
+            else { return }
+            do {
+                try await applyPostMealSMBSetting(request)
+                nightscoutManager.requestSmartMealStatusUpload()
+                await logSuccess("Post-meal SMB block setting saved in Trio.", payload: commandPayload)
+            } catch {
+                nightscoutManager.requestSmartMealStatusUpload()
+                await logError(error.localizedDescription, payload: commandPayload)
+            }
         case .smartMeal:
             try await handleSmartMealCommand(commandPayload)
         case .startOverride:
@@ -85,5 +101,19 @@ class TrioRemoteControl: Injectable {
         case .cancelOverride:
             await handleCancelOverrideCommand(commandPayload)
         }
+    }
+}
+
+extension TrioRemoteControl {
+    @MainActor  private func applyPostMealSMBSetting(_ request: PostMealSMBSettingRequest) throws {
+        var current = settings.settings
+        let updated = try request.applying(to: PostMealSMBStatus(
+            enabled: current.postMealSMBLockoutEnabled,
+            revision: current.postMealSMBLockoutRevision,
+            durationMinutes: 30
+        ))
+        current.postMealSMBLockoutEnabled = updated.enabled
+        current.postMealSMBLockoutRevision = updated.revision
+        settings.settings = current
     }
 }

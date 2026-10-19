@@ -1,5 +1,5 @@
-import XCTest
 @testable import PostMealSMBLockout
+import XCTest
 
 /// Regression tests for incorrectly classifying a similarly sized correction
 /// bolus as a meal. No Trio pump or dosing code is called.
