@@ -1,0 +1,105 @@
+name: Native LoopFollow scanner release
+run-name: Native LoopFollow 24 · existing family signing
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/native-plate-distribution]
+    paths: [.github/workflows/build_native_plate.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: native-plate-testflight
+  cancel-in-progress: false
+jobs:
+  build:
+    defaults:
+      run:
+        working-directory: loopfollow
+    name: Build and upload reviewed native scanner
+    runs-on: xcode-27
+    timeout-minutes: 45
+    env:
+      LOOPFOLLOW_SOURCE_COMMIT: 31dcb874f9e3188696d57612b9d8a236fa10efac
+      LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
+      TEAMID: ${{ secrets.TEAMID }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+      FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+      FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      # The existing lane imports the valid family certificate read-only. It can
+      # provision profiles for LoopFollow, but cannot revoke/create certificates.
+      USE_EXISTING_TRIO_CERTIFICATE: 'true'
+      MATCH_READONLY: 'true'
+      NATIVE_PLATE_SCANNER_REQUIRED: 'true'
+      MINIMUM_BUILD_NUMBER: '24'
+      WAIT_FOR_PROCESSING: 'true'
+    steps:
+      - name: Check out status helper only; do not build Trio
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Check out the pinned reviewed LoopFollow source
+        uses: actions/checkout@v5
+        with:
+          repository: shamiln876/LoopFollow
+          ref: 31dcb874f9e3188696d57612b9d8a236fa10efac
+          path: loopfollow
+          persist-credentials: false
+      - name: Verify the pinned LoopFollow source
+        run: test "$(git rev-parse HEAD)" = "$LOOPFOLLOW_SOURCE_COMMIT"
+      - name: Select released Xcode 27 SDK
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_27.app/Contents/Developer
+          xcodebuild -version
+          sdk_version=$(xcrun --sdk iphoneos --show-sdk-version)
+          [[ "$sdk_version" == 27.* ]] || { echo "iOS 27 SDK is required"; exit 1; }
+      - name: Install project dependencies
+        run: bundle install
+      - name: Suppress Match profile tables
+        run: |
+          table_path=$(bundle exec ruby -e 'puts Gem::Specification.find_by_name("fastlane").gem_dir')/match/lib/match/table_printer.rb
+          test -f "$table_path"
+          sed -i "" "/puts(Terminal::Table.new(params))/d" "$table_path"
+      - name: Build using the existing certificate
+        run: bundle exec fastlane build_LoopFollow
+      - name: Verify native SDK and family app identity
+        run: |
+          python3 Scripts/verify-native-plate-ipa.py LoopFollow.ipa
+      - name: Require successful checks for this exact source before upload
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const required = ['.github/workflows/native_plate_scanner.yml',
+              '.github/workflows/plate_scanner_tests.yml', '.github/workflows/lint.yml'];
+            for (let attempt = 0; attempt < 20; attempt++) {
+              const response = await fetch('https://api.github.com/repos/shamiln876/LoopFollow/actions/runs?event=pull_request&per_page=50&head_sha=' + process.env.LOOPFOLLOW_SOURCE_COMMIT);
+              if (!response.ok) throw new Error('Cannot verify public LoopFollow checks: HTTP ' + response.status);
+              const data = await response.json();
+              const checks = required.map(path => data.workflow_runs.find(run => run.path === path));
+              const failed = checks.find(run => run && run.status === 'completed' && run.conclusion !== 'success');
+              if (failed) throw new Error('Required check did not pass: ' + failed.html_url);
+              if (checks.every(run => run && run.status === 'completed' && run.conclusion === 'success')) {
+                core.info('All three required checks passed for ' + process.env.LOOPFOLLOW_SOURCE_COMMIT);
+                return;
+              }
+              core.info('Waiting for native scanner, scanner tests and lint checks');
+              await new Promise(resolve => setTimeout(resolve, 30000));
+            }
+            throw new Error('Required checks are incomplete; TestFlight upload blocked');
+      - name: Upload to existing LoopFollow TestFlight app
+        run: bundle exec fastlane release
+      - name: Read existing LoopFollow TestFlight availability
+        run: bundle exec ruby ../scripts/testflight-read-status.rb com.D3GG62L9X8.LoopFollow testflight-status.json
+      - name: Save build and distribution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-plate-testflight
+          path: |
+            loopfollow/LoopFollow.ipa
+            loopfollow/LoopFollow.app.dSYM.zip
+            loopfollow/buildlog/
+            loopfollow/native-plate-ipa-verification.json
+            loopfollow/testflight-status.json
