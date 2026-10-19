@@ -8,7 +8,9 @@ The matching LoopFollow branch is `feature/post-meal-smb-control`, based on the 
 
 ## Confirmed trigger behavior
 
-The user clarified: block only once after the bolus; FPU and the scheduled second-carb entry must continue and must not restart the block. The existing meal-bolus-only trigger is retained. The suggested timing is a 30-minute block with the second entry at +31 minutes, rather than reducing the block to 29 minutes. The current Rice preset is still +30 minutes: do not claim it has been moved. Before changing it, reconcile the timestamp mismatch: Smart Meal's second row uses request.confirmedAt, while the verified timer uses pump dose start. APNs latency can make a one-minute margin insufficient. Coordinate these anchors rather than promising the second row always falls after expiry. At the exact expiry, the gate's comparison permits normal SMB calculation; carbs alone never guarantee an SMB dose.
+The user clarified: block only once after the bolus; FPU and the scheduled second-carb entry must continue and must not restart the block. The existing meal-bolus-only trigger is retained. The user subsequently requested the second entry at **+35 minutes**. The matching LoopFollow development branch changes the Rice/default split delay to +35; the SMB duration remains 30 minutes. Explicitly customized positive delays remain editable and Pizza keeps its separate +60-minute preset. At exact expiry the gate permits normal SMB calculation, but carbs alone do not guarantee an SMB dose.
+
+Timestamp limitation: Smart Meal's second row uses request.confirmedAt, while the verified gate uses pump dose start. +35 adds margin but is not a substitute for validating controller delivery latency and the inherited confirmation gap. No FPU entry restarts the block.
 
 The user explicitly approved pushing both named development branches to the existing Trio and LoopFollow GitHub repositories. This does not authorize a merge or app distribution.
 
@@ -17,7 +19,7 @@ The user explicitly approved pushing both named development branches to the exis
 - Standalone policy: 26 passing tests, including default ON and explicit OFF.
 - Exact production matcher and gate definitions extracted from APSManager: 8 passing tests (`python3 scripts/test-post-meal-smb-runtime.py`). These do not exercise the asynchronous Core Data adapter.
 - Actual sender encoder / Trio decoder / receiver integration: 4 passing tests, including toggle command, correlated status, exact replay and reordered-disable rejection. Run matching LoopFollow `Scripts/test-smart-meal-integration.sh /path/to/Trio`.
-- Full Trio compilation, native settings tests, and device delivery integration remain separate requirements; consult the final handoff for the latest build results.
+- The full unsigned Trio and LoopFollow arm64 simulator builds passed. The LoopFollow screen test passed for ON/OFF/unsupported controller states (one test with three launches). Native Trio settings tests and checks of the updated +35-minute sender schedule are being completed; consult the final handoff for their result. Device delivery integration remains unverified.
 
 ## Known unresolved delivery limitation
 
