@@ -4,6 +4,7 @@ require "json"
 require "net/http"
 require "uri"
 require "digest"
+require_relative "loopfollow-internal-membership"
 
 email = ENV.fetch("INVITATION_EMAIL").strip.downcase
 raise "Invalid invitation email" unless email.match?(/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/)
@@ -19,7 +20,7 @@ request = lambda do |path, body = nil|
   req.body = JSON.generate(body) if body
   response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, open_timeout: 20, read_timeout: 30) { |http| http.request(req) }
   raise "Invitation request failed: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
-  JSON.parse(response.body)
+  response.body.to_s.empty? ? {} : JSON.parse(response.body)
 end
 result = {recipientSHA256: Digest::SHA256.hexdigest(email), appID: app_id, otherAppsGranted: nil, provisioningAllowed: nil}
 begin
@@ -28,8 +29,8 @@ begin
   users = request.call("/v1/users?limit=200").fetch("data")
   existing_user = users.find { |u| u.fetch("attributes")["username"].to_s.downcase == email }
   if existing_user
-    result[:status] = "existing_account_requires_group_membership"
-    result[:userID] = existing_user.fetch("id")
+    result.merge!(ensure_loopfollow_internal_membership(request: request, email: email, user_id: existing_user.fetch("id"),
+                                                       app_id: app_id, group_id: "88f53987-808f-4c49-8f2e-a0cc5919ef73"))
   else
     pending = request.call("/v1/userInvitations?limit=200").fetch("data")
     invitation = pending.find { |i| i.fetch("attributes")["email"].to_s.downcase == email }
