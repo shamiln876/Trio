@@ -25,17 +25,9 @@ final class SettingsExportTests: XCTestCase {
         XCTAssertEqual(expectedHeader.components(separatedBy: ",").count, 5, "CSV header should have 5 columns")
     }
 
-    func testExportErrorTypes() {
-        // Test that our export error types are properly defined
-        let documentError = Settings.StateModel.ExportError.documentsDirectoryNotFound
-        XCTAssertNotNil(documentError.errorDescription, "Document error should have description")
-
-        let writeError = Settings.StateModel.ExportError.fileWriteError(TestError.testError)
-        XCTAssertNotNil(writeError.errorDescription, "Write error should have description")
-
-        let unknownError = Settings.StateModel.ExportError.unknown("Test message")
-        XCTAssertNotNil(unknownError.errorDescription, "Unknown error should have description")
-    }
+    // Earlier ExportError assertions were removed: that API no longer exists
+    // in Settings.StateModel. The file was previously absent from the Xcode
+    // test target, so those stale references had never compiled.
 
     func testExportFileNaming() {
         // Test that export files have the correct naming pattern
