@@ -122,7 +122,8 @@ final class PostMealSMBLockoutTests: XCTestCase {
     func testMatchingFinalPumpDeliveryRequiresUniqueMealIntent() {
         let matcher = VerifiedMealBolusMatcher()
         let intent = VerifiedMealBolusMatcher.MealIntent(
-            transactionID: "smart-meal-1", requestedAt: now, requestedUnits: 4.2
+            transactionID: "smart-meal-1", requestedAt: now, requestedUnits: 4.2,
+            linkedPumpEventID: "pod-dose-001"
         )
         let delivery = VerifiedMealBolusMatcher.PumpDelivery(
             eventID: "pod-dose-001", timestamp: now.addingTimeInterval(12),
