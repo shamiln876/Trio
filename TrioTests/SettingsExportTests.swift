@@ -49,6 +49,22 @@ final class SettingsExportTests: XCTestCase {
         XCTAssertEqual(fileName.components(separatedBy: "_").count, 2, "File name should have one underscore")
     }
 
+    func testPostMealSMBLockoutDefaultOffAndRoundTrip() throws {
+        XCTAssertFalse(TrioSettings().postMealSMBLockoutEnabled)
+        var settings = TrioSettings()
+        settings.postMealSMBLockoutEnabled = true
+        let restored = try JSONDecoder().decode(TrioSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertTrue(restored.postMealSMBLockoutEnabled)
+        settings.postMealSMBLockoutEnabled = false
+        let disabled = try JSONDecoder().decode(TrioSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertFalse(disabled.postMealSMBLockoutEnabled)
+    }
+
+    func testOldSettingsWithoutMealLockoutRemainOff() throws {
+        let settings = try JSONDecoder().decode(TrioSettings.self, from: Data("{}".utf8))
+        XCTAssertFalse(settings.postMealSMBLockoutEnabled)
+    }
+
     // Helper function to test CSV escaping (extracted from Settings.StateModel)
     private func csvEscape(_ value: String) -> String {
         if value.contains(",") || value.contains("\"") || value.contains("\n") {
