@@ -27,8 +27,10 @@ on:
 permissions:
   contents: read
 
+# Separate app identities have independent build numbers and signing profiles.
+# Read-only status must not cancel either app's upload or processing wait.
 concurrency:
-  group: smart-meal-trio-testflight
+  group: smart-meal-testflight-${{ inputs.status_only && 'status' || inputs.build_loopfollow && 'loopfollow' || 'trio' }}
   cancel-in-progress: true
 
 jobs:
