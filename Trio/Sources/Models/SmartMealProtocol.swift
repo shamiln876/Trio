@@ -37,6 +37,7 @@ struct SmartMealRequest: Codable, Equatable, Sendable {
     let includeFatProtein: Bool
     let protein: Int
     let fat: Int
+    var lowPredictionAcknowledged: Bool? = nil
 
     var totalCarbs: Int { immediateCarbs + delayedCarbs }
     var digest: String { (try? SmartMealWire.digest(self)) ?? "" }
@@ -93,6 +94,7 @@ struct SmartMealReceiverStatus: Codable, Equatable, Sendable {
     let enabled: Bool
     let configuration: SmartMealConfiguration
     let receipts: [SmartMealReceipt]
+    var allowsLowPredictionReview: Bool? = nil
 
     func isCurrent(now: Date, calculationDate: Date?, bundleID: String) -> Bool {
         guard let calculationDate else { return false }
@@ -100,6 +102,22 @@ struct SmartMealReceiverStatus: Codable, Equatable, Sendable {
             && (0 ... 600).contains(now.timeIntervalSince1970 - generatedAt)
             && abs(calculationDate.timeIntervalSince1970 - calculationAt) < 1
             && (0 ... 600).contains(now.timeIntervalSince1970 - calculationAt)
+    }
+}
+
+/// Matches the native calculator's 54 mg/dL selected-prediction cutoff.
+/// The guard forecast is warning context, not a second calculator cutoff.
+enum SmartMealForecastPolicy {
+    static func requiresReview(minimum: Decimal, guardMinimum: Decimal) -> Bool {
+        minimum < 70 || guardMinimum < 70
+    }
+
+    static func permits(glucose: Decimal, minimum: Decimal, guardMinimum: Decimal, bolus: Decimal, acknowledged: Bool) -> Bool {
+        guard [glucose, minimum, guardMinimum, bolus].allSatisfy({ NSDecimalNumber(decimal: $0).doubleValue.isFinite }),
+              glucose > 0, bolus >= 0 else { return false }
+        if bolus == 0 { return true }
+        guard glucose >= 70, minimum >= 54 else { return false }
+        return !requiresReview(minimum: minimum, guardMinimum: guardMinimum) || acknowledged
     }
 }
 

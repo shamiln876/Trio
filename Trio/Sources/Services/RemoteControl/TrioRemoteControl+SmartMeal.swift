@@ -27,7 +27,8 @@ extension TrioRemoteControl {
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "",
             enabled: UserDefaults.standard.bool(forKey: "isTrioRemoteControlEnabled"),
             configuration: await smartMealConfiguration(),
-            receipts: await receiver.recent()
+            receipts: await receiver.recent(),
+            allowsLowPredictionReview: true
         )
     }
 
@@ -124,7 +125,9 @@ extension TrioRemoteControl {
         guard abs(values.0.timeIntervalSince1970 - request.calculationAt) < 1,
               (0 ... 600).contains(now.timeIntervalSince(values.0)),
               (0 ... 600).contains(now.timeIntervalSince(values.3)),
-              values.1 >= 70, values.2 >= 70, values.4 >= 70 else { throw SmartMealError.contextChanged }
+              SmartMealForecastPolicy.permits(glucose: Decimal(values.4), minimum: values.1, guardMinimum: values.2,
+                                              bolus: request.bolusAmount, acknowledged: request.lowPredictionAcknowledged == true)
+        else { throw SmartMealError.contextChanged }
         let result = await calculator.handleBolusCalculation(
             carbs: Decimal(request.totalCarbs),
             useFattyMealCorrection: false,

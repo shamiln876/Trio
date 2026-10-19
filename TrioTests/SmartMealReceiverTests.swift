@@ -70,6 +70,40 @@ import Testing
             continuation = nil }
     }
 
+    @Test func lowForecastAcknowledgementIsRequiredBeforeAnyEffectsAndReplayStaysIdempotent() async throws {
+        for acknowledged in [false, true] {
+            let location = file()
+            defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
+            let receiver = try SmartMealReceiver(file: location)
+            let counts = Counts()
+            var meal = request(bolus: 0.65)
+            meal.lowPredictionAcknowledged = acknowledged ? true : nil
+            let submitted = meal
+            let receipt = try await receiver.execute(submitted, now: now, validate: {
+                try submitted.validate(configuration: configuration, now: now)
+                guard SmartMealForecastPolicy.permits(glucose: 117, minimum: 65, guardMinimum: 29,
+                                                     bolus: submitted.bolusAmount, acknowledged: submitted.lowPredictionAcknowledged == true)
+                else { throw SmartMealError.contextChanged }
+            }, store: { await counts.store() }, bolus: { await counts.bolus() })
+            #expect(receipt.phase == (acknowledged ? .accepted : .rejected))
+            #expect(await counts.values() == (acknowledged ? [1, 1] : [0, 0]))
+            _ = try await receiver.execute(submitted, now: now, validate: {}, store: { await counts.store() }, bolus: { await counts.bolus() })
+            #expect(await counts.values() == (acknowledged ? [1, 1] : [0, 0]))
+        }
+    }
+
+    @Test func optionalForecastFieldsKeepLegacyWireCompatibleAndBindAcknowledgementToRequest() throws {
+        let original = request()
+        let oldWire = try JSONEncoder().encode(original)
+        #expect(!String(decoding: oldWire, as: UTF8.self).contains("lowPredictionAcknowledged"))
+        #expect(try JSONDecoder().decode(SmartMealRequest.self, from: oldWire).lowPredictionAcknowledged == nil)
+        var reviewed = original
+        reviewed.lowPredictionAcknowledged = true
+        #expect(reviewed.digest != original.digest)
+        #expect(try JSONDecoder().decode(SmartMealRequest.self, from: JSONEncoder().encode(reviewed)) == reviewed)
+        #expect(!SmartMealForecastPolicy.permits(glucose: 117, minimum: 53, guardMinimum: 29, bolus: reviewed.bolusAmount, acknowledged: true))
+    }
+
     @Test func concurrentDuplicateCannotRepeatEffectsOrStartAnotherMeal() async throws {
         let location = file()
         defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
