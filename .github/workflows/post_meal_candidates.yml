@@ -1,0 +1,229 @@
+name: Post-meal SMB verified release candidates
+run-name: Post-meal SMB candidates · no upload
+on:
+  push:
+    branches: [feature/post-meal-smb-loopfollow]
+    paths: [.github/workflows/post_meal_candidates.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: postmeal-release-candidates
+  cancel-in-progress: false
+env:
+  LOOPFOLLOW_SOURCE: 91b711e466ae7a74cd73b54145580c178c3ddf40
+  CI: 'true'
+jobs:
+  verify-trio:
+    runs-on: macos-26
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: shamiln876/LoopFollow
+          ref: ${{ env.LOOPFOLLOW_SOURCE }}
+          path: loopfollow
+          persist-credentials: false
+      - name: Check exact sources and select Xcode
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C loopfollow rev-parse HEAD)" = "$LOOPFOLLOW_SOURCE"
+          if [ -d /Applications/Xcode_26.5.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+          elif [ -d /Applications/Xcode_26.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          fi
+          xcodebuild -version
+      - name: Test actual storage, receiver and sender sources without a pump
+        run: |
+          python3 scripts/test-post-meal-smb-runtime.py
+          bash scripts/test-smart-meal-receiver.sh
+          bash loopfollow/Scripts/test-smart-meal-core.sh
+          bash loopfollow/Scripts/test-smart-meal-integration.sh "$GITHUB_WORKSPACE"
+      - name: Choose test simulator
+        run: |
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/devices.json"
+          python3 - <<'PY'
+          import json, os
+          data=json.load(open(os.environ['RUNNER_TEMP']+'/devices.json'))['devices']
+          matches=[d for runtime,devices in data.items() if '.iOS-' in runtime for d in devices if d.get('isAvailable') and d['name'].startswith('iPhone')]
+          if not matches: raise SystemExit('No iPhone simulator')
+          with open(os.environ['GITHUB_ENV'],'a') as output: output.write('TEST_DEVICE='+matches[0]['udid']+'\n')
+          PY
+      - name: Native settings, persistence and actual dosing engine tests
+        run: |
+          set -o pipefail
+          xcrun simctl bootstatus "$TEST_DEVICE" -b
+          xcodebuild -workspace Trio.xcworkspace -scheme 'Trio Tests' \
+            -destination "platform=iOS Simulator,id=$TEST_DEVICE" -parallel-testing-enabled NO \
+            -derivedDataPath "$RUNNER_TEMP/trio-postmeal" -skipPackagePluginValidation \
+            -resultBundlePath "$RUNNER_TEMP/trio-postmeal.xcresult" \
+            -only-testing:TrioTests/SettingsExportTests \
+            -only-testing:TrioTests/DetermineBasalSmbMicroBolusTests \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM='' \
+            PROVISIONING_PROFILE_SPECIFIER='' COMPILER_INDEX_STORE_ENABLE=NO test
+      - name: Verify tests actually executed
+        run: |
+          python3 scripts/verify-postmeal-test-result.py "$RUNNER_TEMP/trio-postmeal.xcresult" \
+            --minimum 22 --source "$GITHUB_SHA" --output trio-test-receipt.json \
+            --require testPostMealSMBLockoutDefaultOnAndRoundTrip \
+            --require testMealWaitSurvivesNewStoreAndExpiresWithoutHistory \
+            --require testConcurrentMealCallbacksKeepLatestAnchor \
+            --require testPostMealPermissionSuppressesSMB
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postmeal-trio-tests
+          path: |
+            trio-test-receipt.json
+            ${{ runner.temp }}/trio-postmeal.xcresult
+  verify-loopfollow:
+    runs-on: xcode-27
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: shamiln876/LoopFollow
+          ref: ${{ env.LOOPFOLLOW_SOURCE }}
+          path: loopfollow
+          persist-credentials: false
+      - name: Select native SDK and iPhone simulator
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app/Contents/Developer
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/devices.json"
+          python3 - <<'PY'
+          import json, os
+          data=json.load(open(os.environ['RUNNER_TEMP']+'/devices.json'))['devices']
+          matches=[d for runtime,devices in data.items() if '.iOS-27-' in runtime for d in devices if d.get('isAvailable') and d['name'].startswith('iPhone')]
+          if not matches: raise SystemExit('No iOS 27 iPhone simulator')
+          with open(os.environ['GITHUB_ENV'],'a') as output: output.write('TEST_DEVICE='+matches[0]['udid']+'\n')
+          PY
+      - name: Grounding and scanner regression tests
+        working-directory: loopfollow
+        run: bash Scripts/test-plate-scanner.sh
+      - name: Native toggle, 35-minute handoff and retained scanner journeys
+        working-directory: loopfollow
+        env:
+          PLATE_SCANNER_CI_SKIP_FORMAT: '1'
+        run: |
+          set -o pipefail
+          xcrun simctl bootstatus "$TEST_DEVICE" -b
+          xcodebuild -workspace LoopFollow.xcworkspace -scheme SmartMealUI \
+            -parallel-testing-enabled NO -destination "platform=iOS Simulator,id=$TEST_DEVICE" \
+            -derivedDataPath "$RUNNER_TEMP/lf-postmeal" -resultBundlePath "$RUNNER_TEMP/lf-postmeal.xcresult" \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testPostMealSMBToggleShowsControllerStateAndHoldsUnsupportedTrio \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testRiceSplitEditedUnitsPopulateMeal \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testOptionalScannerRequiresReviewAndUnknownResolution \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testDirectPhotoCancellationKeepsAdvisorCarbs \
+            -only-testing:SmartMealUITests/CarnivalManualUITests/testManualHalfBagelStillFillsAdvisorAfterCancellingScanner \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testLowForecastRequiresAcceptAndPreservesEditedDose \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testManualMealRemainsAvailableDuringVeryLowForecast \
+            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG PLATE_SCAN_REQUIRE_NATIVE' \
+            CODE_SIGNING_ALLOWED=NO test
+      - name: Verify all screen tests executed
+        run: |
+          python3 scripts/verify-postmeal-test-result.py "$RUNNER_TEMP/lf-postmeal.xcresult" \
+            --minimum 7 --source "$LOOPFOLLOW_SOURCE" --output loopfollow-test-receipt.json \
+            --require testPostMealSMBToggleShowsControllerStateAndHoldsUnsupportedTrio \
+            --require testRiceSplitEditedUnitsPopulateMeal \
+            --require testOptionalScannerRequiresReviewAndUnknownResolution
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postmeal-loopfollow-tests
+          path: |
+            loopfollow-test-receipt.json
+            ${{ runner.temp }}/lf-postmeal.xcresult
+  sign-trio:
+    needs: [verify-trio, verify-loopfollow]
+    runs-on: macos-26
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Select Xcode and install build tools
+        run: |
+          if [ -d /Applications/Xcode_26.5.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+          elif [ -d /Applications/Xcode_26.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          fi
+          bundle install
+      - name: Build with original identity and existing signing assets
+        run: bundle exec fastlane build_trio
+        env:
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_READONLY: 'true'
+      - name: Verify archive identity, source and production push signing
+        run: |
+          python3 scripts/verify-smart-meal-distribution.py Trio.ipa --source "$GITHUB_SHA" --output trio-candidate.json
+          shasum -a 256 Trio.ipa > Trio.ipa.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: postmeal-trio-candidate
+          path: |
+            Trio.ipa
+            Trio.ipa.sha256
+            trio-candidate.json
+  sign-loopfollow:
+    needs: [verify-trio, verify-loopfollow]
+    runs-on: xcode-27
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: shamiln876/LoopFollow
+          ref: ${{ env.LOOPFOLLOW_SOURCE }}
+          path: loopfollow
+          persist-credentials: false
+      - name: Select Xcode and install build tools
+        working-directory: loopfollow
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app/Contents/Developer
+          bundle install
+          table_path=$(bundle exec ruby -e 'puts Gem::Specification.find_by_name("fastlane").gem_dir')/match/lib/match/table_printer.rb
+          test -f "$table_path"
+          sed -i "" "/puts(Terminal::Table.new(params))/d" "$table_path"
+      - name: Build using the existing family certificate
+        working-directory: loopfollow
+        run: bundle exec fastlane build_LoopFollow
+        env:
+          LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_READONLY: 'true'
+          USE_EXISTING_TRIO_CERTIFICATE: 'true'
+          NATIVE_PLATE_SCANNER_REQUIRED: 'true'
+          MINIMUM_BUILD_NUMBER: '25'
+      - name: Verify original identity, source, native SDK and production signing
+        working-directory: loopfollow
+        run: |
+          python3 Scripts/verify-native-plate-ipa.py LoopFollow.ipa
+          python3 Scripts/verify-smart-meal-distribution.py LoopFollow.ipa --source "$LOOPFOLLOW_SOURCE" --output loopfollow-candidate.json
+          shasum -a 256 LoopFollow.ipa > LoopFollow.ipa.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: postmeal-loopfollow-candidate
+          path: |
+            loopfollow/LoopFollow.ipa
+            loopfollow/LoopFollow.ipa.sha256
+            loopfollow/loopfollow-candidate.json
+            loopfollow/native-plate-ipa-verification.json

@@ -185,6 +185,67 @@ final class SettingsExportTests: XCTestCase {
         ))
     }
 
+    private func withMealWaitStore(_ body: (UserDefaults, String, Date) throws -> Void) rethrows {
+        let suite = "PostMealWait.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try body(defaults, suite, Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    func testMealWaitSurvivesNewStoreAndExpiresWithoutHistory() {
+        withMealWaitStore { defaults, suite, t in
+            let store = PostMealSMBWaitStore(defaults: defaults)
+            store.recordMealResult(success: true, id: "meal", commandRevision: "on", enabled: true, revision: "on", acceptedAt: t)
+            let restarted = PostMealSMBWaitStore(defaults: UserDefaults(suiteName: suite)!)
+            XCTAssertEqual(restarted.blockUntil(enabled: true, revision: "on", now: t.addingTimeInterval(1799)), t.addingTimeInterval(1800))
+            XCTAssertNil(restarted.blockUntil(enabled: true, revision: "on", now: t.addingTimeInterval(1800)))
+        }
+    }
+
+    func testMealWaitOffOnAndLateCallbackCannotReviveOldMeal() {
+        withMealWaitStore { defaults, _, t in
+            let store = PostMealSMBWaitStore(defaults: defaults)
+            store.recordMealResult(success: true, id: "meal", commandRevision: "on", enabled: true, revision: "on", acceptedAt: t)
+            store.synchronize(enabled: false, revision: "off")
+            store.synchronize(enabled: true, revision: "on-again")
+            store.recordMealResult(success: true, id: "late-old", commandRevision: "on", enabled: true, revision: "on-again", acceptedAt: t.addingTimeInterval(30))
+            XCTAssertNil(store.blockUntil(enabled: true, revision: "on-again", now: t.addingTimeInterval(60)))
+            store.recordMealResult(success: true, id: "new", commandRevision: "on-again", enabled: true, revision: "on-again", acceptedAt: t.addingTimeInterval(60))
+            XCTAssertEqual(store.blockUntil(enabled: true, revision: "on-again", now: t.addingTimeInterval(60)), t.addingTimeInterval(1860))
+        }
+    }
+
+    func testFailedAndDuplicateMealCallbacksCannotExtendWait() {
+        withMealWaitStore { defaults, _, t in
+            let store = PostMealSMBWaitStore(defaults: defaults)
+            store.recordMealResult(success: false, id: "failed", commandRevision: "on", enabled: true, revision: "on", acceptedAt: t)
+            XCTAssertNil(store.blockUntil(enabled: true, revision: "on", now: t))
+            store.recordMealResult(success: true, id: "meal", commandRevision: "on", enabled: true, revision: "on", acceptedAt: t)
+            store.recordMealResult(success: true, id: "meal", commandRevision: "on", enabled: true, revision: "on", acceptedAt: t.addingTimeInterval(300))
+            XCTAssertEqual(store.blockUntil(enabled: true, revision: "on", now: t.addingTimeInterval(300)), t.addingTimeInterval(1800))
+        }
+    }
+
+    func testConcurrentMealCallbacksKeepLatestAnchor() {
+        withMealWaitStore { defaults, _, t in
+            let store = PostMealSMBWaitStore(defaults: defaults)
+            DispatchQueue.concurrentPerform(iterations: 100) { index in
+                store.recordMealResult(success: true, id: "meal-\(index)", commandRevision: "on", enabled: true, revision: "on", acceptedAt: t.addingTimeInterval(Double(index)))
+            }
+            XCTAssertEqual(store.blockUntil(enabled: true, revision: "on", now: t.addingTimeInterval(100)), t.addingTimeInterval(1899))
+        }
+    }
+
+    func testSettingChangeAndRestartDoNotReviveAnAnchor() {
+        withMealWaitStore { defaults, suite, t in
+            let store = PostMealSMBWaitStore(defaults: defaults)
+            store.recordMealResult(success: true, id: "meal", commandRevision: "old", enabled: true, revision: "old", acceptedAt: t)
+            XCTAssertNil(store.blockUntil(enabled: true, revision: "new", now: t.addingTimeInterval(1)))
+            let restarted = PostMealSMBWaitStore(defaults: UserDefaults(suiteName: suite)!)
+            XCTAssertNil(restarted.blockUntil(enabled: true, revision: "new", now: t.addingTimeInterval(2)))
+        }
+    }
+
     // Helper function to test CSV escaping (extracted from Settings.StateModel)
     private func csvEscape(_ value: String) -> String {
         if value.contains(",") || value.contains("\"") || value.contains("\n") {

@@ -20,6 +20,8 @@ extension TrioRemoteControl {
 
     func smartMealStatus(calculationDate: Date?) async -> SmartMealReceiverStatus? {
         guard let calculationDate, let receiver = SmartMealReceiver.shared else { return nil }
+        let aps = await TrioApp.resolver.resolve(APSManager.self)
+        let waitStatus = await aps?.postMealSMBStatus()
         return SmartMealReceiverStatus(
             protocolVersion: 1,
             generatedAt: Date().timeIntervalSince1970,
@@ -29,7 +31,7 @@ extension TrioRemoteControl {
             configuration: await smartMealConfiguration(),
             receipts: await receiver.recent(),
             allowsLowPredictionReview: true,
-            postMealSMB: PostMealSMBStatus(
+            postMealSMB: waitStatus ?? PostMealSMBStatus(
                 enabled: settings.settings.postMealSMBLockoutEnabled,
                 revision: settings.settings.postMealSMBLockoutRevision,
                 durationMinutes: 30

@@ -195,4 +195,5 @@ struct PostMealSMBStatus: Codable, Equatable, Sendable {
     let enabled: Bool
     let revision: String
     let durationMinutes: Int
+    var blockedUntil: TimeInterval? = nil
 }
