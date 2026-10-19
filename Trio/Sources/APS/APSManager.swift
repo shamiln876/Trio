@@ -692,7 +692,7 @@ final class BaseAPSManager: APSManager, Injectable {
         postMealSMBEnabledAt = now
         postMealSMBPending = nil
         postMealSMBConfirmed = nil
-        debug(.apsManager, "Post-meal SMB block explicitly changed to \\(enabled ? "ON" : "OFF")")
+        debug(.apsManager, "Post-meal SMB block explicitly changed to \(enabled ? "ON" : "OFF")")
     }
 
     /// Reconcile an explicit meal command with one uniquely matching FINAL
