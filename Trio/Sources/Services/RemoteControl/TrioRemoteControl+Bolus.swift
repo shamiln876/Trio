@@ -2,7 +2,7 @@ import Foundation
 import HealthKit
 
 extension TrioRemoteControl {
-    func handleBolusCommand(_ payload: CommandPayload) async throws {
+    func handleBolusCommand(_ payload: CommandPayload, mealAssociated: Bool = false) async throws {
         guard let bolusAmount = payload.bolusAmount else {
             await logError("Command rejected: bolus amount is missing or invalid.", payload: payload)
             return
@@ -40,8 +40,8 @@ extension TrioRemoteControl {
             )
         }
 
-        await apsManager
-            .enactBolus(amount: Double(truncating: bolusAmount as NSNumber), isSMB: false) { [weak self] success, message in
+        let bolusUnits = Double(truncating: bolusAmount as NSNumber)
+        let resultHandler: (Bool, String) -> Void = { [weak self] success, message in
                 guard let self = self else { return }
                 Task {
                     if success {
@@ -58,6 +58,11 @@ extension TrioRemoteControl {
                     }
                 }
             }
+        if mealAssociated {
+            await apsManager.enactMealBolus(amount: bolusUnits, callback: resultHandler)
+        } else {
+            await apsManager.enactBolus(amount: bolusUnits, isSMB: false, callback: resultHandler)
+        }
     }
 }
 

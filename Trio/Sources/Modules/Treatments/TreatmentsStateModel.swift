@@ -644,7 +644,11 @@ extension Treatments {
                     await MainActor.run {
                         self.isAwaitingDeterminationResult = true
                     }
-                    await apsManager.enactBolus(amount: maxAmount, isSMB: false, callback: nil)
+                    if carbs > 0 {
+                        await apsManager.enactMealBolus(amount: maxAmount, callback: nil)
+                    } else {
+                        await apsManager.enactBolus(amount: maxAmount, isSMB: false, callback: nil)
+                    }
                 }
             } catch {
                 debug(.bolusState, "Authentication error for pump bolus: \(error)")

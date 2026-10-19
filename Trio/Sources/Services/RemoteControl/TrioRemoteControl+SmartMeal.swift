@@ -76,9 +76,8 @@ extension TrioRemoteControl {
                 return await withCheckedContinuation { continuation in
                     Task {
                         await aps
-                            .enactBolus(
-                                amount: NSDecimalNumber(decimal: request.bolusAmount).doubleValue,
-                                isSMB: false
+                            .enactMealBolus(
+                                amount: NSDecimalNumber(decimal: request.bolusAmount).doubleValue
                             ) { success, _ in
                                 continuation.resume(returning: success)
                             }

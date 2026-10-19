@@ -25,17 +25,9 @@ final class SettingsExportTests: XCTestCase {
         XCTAssertEqual(expectedHeader.components(separatedBy: ",").count, 5, "CSV header should have 5 columns")
     }
 
-    func testExportErrorTypes() {
-        // Test that our export error types are properly defined
-        let documentError = Settings.StateModel.ExportError.documentsDirectoryNotFound
-        XCTAssertNotNil(documentError.errorDescription, "Document error should have description")
-
-        let writeError = Settings.StateModel.ExportError.fileWriteError(TestError.testError)
-        XCTAssertNotNil(writeError.errorDescription, "Write error should have description")
-
-        let unknownError = Settings.StateModel.ExportError.unknown("Test message")
-        XCTAssertNotNil(unknownError.errorDescription, "Unknown error should have description")
-    }
+    // Earlier ExportError assertions were removed: that API no longer exists
+    // in Settings.StateModel. The file was previously absent from the Xcode
+    // test target, so those stale references had never compiled.
 
     func testExportFileNaming() {
         // Test that export files have the correct naming pattern
@@ -46,7 +38,144 @@ final class SettingsExportTests: XCTestCase {
 
         XCTAssertTrue(fileName.hasPrefix("TrioSettings_"), "File name should start with TrioSettings_")
         XCTAssertTrue(fileName.hasSuffix(".csv"), "File name should end with .csv")
-        XCTAssertEqual(fileName.components(separatedBy: "_").count, 2, "File name should have one underscore")
+        XCTAssertEqual(fileName.components(separatedBy: "_").count, 3, "Prefix and yyyyMMdd_HHmmss timestamp should contain two underscores")
+    }
+
+    func testPostMealSMBLockoutDefaultOffAndRoundTrip() throws {
+        XCTAssertFalse(TrioSettings().postMealSMBLockoutEnabled)
+        var settings = TrioSettings()
+        settings.postMealSMBLockoutEnabled = true
+        let restored = try JSONDecoder().decode(TrioSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertTrue(restored.postMealSMBLockoutEnabled)
+        settings.postMealSMBLockoutEnabled = false
+        let disabled = try JSONDecoder().decode(TrioSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertFalse(disabled.postMealSMBLockoutEnabled)
+    }
+
+    func testOldSettingsWithoutMealLockoutRemainOff() throws {
+        let settings = try JSONDecoder().decode(TrioSettings.self, from: Data("{}".utf8))
+        XCTAssertFalse(settings.postMealSMBLockoutEnabled)
+    }
+
+    func testVerifiedPumpDoseStartPreventsCorrectionMisclassification() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        let verified = PostMealSMBPumpHistoryVerifier.matches(
+            requestedAt: t, requestedUnits: 4.2,
+            observedPumpDoseStartAt: t.addingTimeInterval(12),
+            deliveredAt: t.addingTimeInterval(12),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isMutable: false, isSMB: false, isExternal: false,
+            now: t.addingTimeInterval(40)
+        )
+        XCTAssertTrue(verified)
+
+        // Same-size correction at 30 seconds must not match a meal's
+        // actual in-progress dose that started at 12 seconds.
+        let correction = PostMealSMBPumpHistoryVerifier.matches(
+            requestedAt: t, requestedUnits: 4.2,
+            observedPumpDoseStartAt: t.addingTimeInterval(12),
+            deliveredAt: t.addingTimeInterval(30),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isMutable: false, isSMB: false, isExternal: false,
+            now: t.addingTimeInterval(40)
+        )
+        XCTAssertFalse(correction)
+    }
+
+    func testMissingPumpObservedDoseCannotClaimConfirmedMeal() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertFalse(PostMealSMBPumpHistoryVerifier.matches(
+            requestedAt: t, requestedUnits: 4.2,
+            observedPumpDoseStartAt: nil,
+            deliveredAt: t.addingTimeInterval(10),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isMutable: false, isSMB: false, isExternal: false,
+            now: t.addingTimeInterval(30)
+        ))
+    }
+
+    func testIncompleteOrUnfinalizedPumpBolusIsRejected() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        func match(delivered: Double, mutable: Bool) -> Bool {
+            PostMealSMBPumpHistoryVerifier.matches(
+                requestedAt: t, requestedUnits: 4.2,
+                observedPumpDoseStartAt: t.addingTimeInterval(10),
+                deliveredAt: t.addingTimeInterval(10),
+                deliveredUnits: delivered, programmedUnits: 4.2,
+                isMutable: mutable, isSMB: false, isExternal: false,
+                now: t.addingTimeInterval(30)
+            )
+        }
+        XCTAssertFalse(match(delivered: 2.1, mutable: false))
+        XCTAssertFalse(match(delivered: 4.2, mutable: true))
+    }
+
+    func testAutomaticAndExternalPumpBolusesCannotConfirmMeal() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        func match(smb: Bool, external: Bool) -> Bool {
+            PostMealSMBPumpHistoryVerifier.matches(
+                requestedAt: t, requestedUnits: 4.2,
+                observedPumpDoseStartAt: t.addingTimeInterval(10),
+                deliveredAt: t.addingTimeInterval(10),
+                deliveredUnits: 4.2, programmedUnits: 4.2,
+                isMutable: false, isSMB: smb, isExternal: external,
+                now: t.addingTimeInterval(30)
+            )
+        }
+        XCTAssertFalse(match(smb: true, external: false))
+        XCTAssertFalse(match(smb: false, external: true))
+    }
+
+    func testPumpHistoryCannotConfirmDeliveryFromFuture() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertFalse(PostMealSMBPumpHistoryVerifier.matches(
+            requestedAt: t, requestedUnits: 4.2,
+            observedPumpDoseStartAt: t.addingTimeInterval(10),
+            deliveredAt: t.addingTimeInterval(10),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isMutable: false, isSMB: false, isExternal: false,
+            now: t.addingTimeInterval(5)
+        ))
+    }
+
+    func testLiveThirtyMinuteEnactmentGateExpiresAtExactlyThirtyMinutes() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertTrue(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: t, pendingCommandAcceptedAt: nil,
+            now: t.addingTimeInterval(1799)
+        ))
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: t, pendingCommandAcceptedAt: nil,
+            now: t.addingTimeInterval(1800)
+        ))
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: t, pendingCommandAcceptedAt: nil,
+            now: t.addingTimeInterval(-1)
+        ))
+    }
+
+    func testLivePendingGuardCannotMasqueradeAsConfirmedThirtyMinuteBlock() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertTrue(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: t,
+            now: t.addingTimeInterval(120)
+        ))
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: t,
+            now: t.addingTimeInterval(121)
+        ))
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: nil,
+            now: t.addingTimeInterval(60)
+        ))
+    }
+
+    func testLiveManualOffOverridesOldConfirmedDoseAndPendingGuard() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: false, confirmedDeliveredAt: t, pendingCommandAcceptedAt: t,
+            now: t.addingTimeInterval(1)
+        ))
     }
 
     // Helper function to test CSV escaping (extracted from Settings.StateModel)

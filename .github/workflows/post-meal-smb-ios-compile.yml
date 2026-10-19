@@ -1,0 +1,62 @@
+name: Post-meal SMB Trio iOS compile (no device deployment)
+
+on:
+  push:
+    branches:
+      - feature/post-meal-smb-lockout-prototype
+    paths:
+      - 'Trio/Sources/**'
+      - 'Trio.xcodeproj/**'
+      - '.github/workflows/post-meal-smb-ios-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-meal-smb-ios-compile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Choose installed Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.5.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+          elif [ -d /Applications/Xcode_26.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          else
+            xcode-select -p
+          fi
+          xcodebuild -version
+      - name: Build unsigned simulator app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace Trio.xcworkspace \
+            -scheme Trio \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build 2>&1 | tee /tmp/post-meal-smb-ios-build.log
+      - name: Surface compiler failures
+        if: failure()
+        run: |
+          echo 'Build errors:'
+          grep -nE 'error:|BUILD FAILED|Undefined symbol' /tmp/post-meal-smb-ios-build.log | tail -n 75 || true
+      - name: Upload simulator build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-meal-smb-ios-compile-errors
+          path: /tmp/post-meal-smb-ios-build.log
+          retention-days: 3

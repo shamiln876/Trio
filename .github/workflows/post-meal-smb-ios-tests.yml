@@ -1,0 +1,78 @@
+name: Post-meal SMB integrated iOS tests (no pump)
+
+on:
+  push:
+    branches:
+      - feature/post-meal-smb-lockout-prototype
+    paths:
+      - '.github/workflows/post-meal-smb-ios-tests.yml'
+      - 'TrioTests/SettingsExportTests.swift'
+      - 'TrioTests/OpenAPSSwiftTests/DetermineBasalSmbMicroBolusTests.swift'
+      - 'Trio.xcodeproj/project.pbxproj'
+      - 'Trio/Sources/Models/TrioSettings.swift'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  settings-verified-on-simulator:
+    runs-on: macos-26
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Select Xcode matching simulator
+        run: |
+          if [ -d /Applications/Xcode_26.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          else
+            xcode-select -p
+          fi
+          xcodebuild -version
+      - name: Run persistence tests in iOS simulator with no pump
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -workspace Trio.xcworkspace \
+            -scheme 'Trio Tests' \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' \
+            -parallel-testing-enabled NO \
+            -only-testing:TrioTests/SettingsExportTests \
+            -only-testing:TrioTests/DetermineBasalSmbMicroBolusTests \
+            CODE_SIGN_IDENTITY='-' \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM='' \
+            PROVISIONING_PROFILE_SPECIFIER='' \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            2>&1 | tee /tmp/post-meal-smb-ios-tests.log
+      - name: Reject silent zero-test pass
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, sys
+          log = Path('/tmp/post-meal-smb-ios-tests.log').read_text(errors='replace')
+          completed = [int(pair[0]) for pair in re.findall(r'Executed\s+(\d+)\s+tests?,\s+with\s+(\d+)\s+failures?', log)]
+          has_suite = bool(re.search(r"Test Suite 'SettingsExportTests' passed", log))
+          has_specific = 'testPostMealSMBLockoutDefaultOffAndRoundTrip' in log and 'testOldSettingsWithoutMealLockoutRemainOff' in log
+          has_algorithm = ('testPostMealPermissionSuppressesSMB' in log or
+                           'Post-meal block suppresses a real SMB decision without cancelling determination' in log)
+          if not (has_suite and has_specific and has_algorithm and any(n >= 2 for n in completed) and '** TEST SUCCEEDED **' in log):
+              print('FAIL: iOS simulator did not execute and pass lockout-specific XCTest cases', file=sys.stderr)
+              print(f'counts={completed}, suite={has_suite}, specific={has_specific}, algorithm={has_algorithm}', file=sys.stderr)
+              sys.exit(1)
+          print(f'PASS: settings lockout XCTest cases executed; test suite counts={completed}')
+          PY
+      - name: Surface errors on failure
+        if: failure()
+        run: |
+          grep -nE 'error:|Failing tests:|TEST FAILED|BUILD FAILED|could not be launched' /tmp/post-meal-smb-ios-tests.log | tail -n 90 || true
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-meal-smb-ios-test-errors
+          path: /tmp/post-meal-smb-ios-tests.log
+          retention-days: 3

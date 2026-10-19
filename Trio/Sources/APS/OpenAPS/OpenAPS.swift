@@ -241,7 +241,8 @@ final class OpenAPS {
         simulatedCarbsAmount: Decimal? = nil,
         simulatedBolusAmount: Decimal? = nil,
         simulatedCarbsDate: Date? = nil,
-        simulation: Bool = false
+        simulation: Bool = false,
+        suppressPostMealSMBs: Bool = false
     ) async throws -> Determination? {
         debug(.openAPS, "Start determineBasal")
 
@@ -341,7 +342,7 @@ final class OpenAPS {
             profile: profile,
             autosens: autosens,
             meal: meal,
-            microBolusAllowed: true,
+            microBolusAllowed: !suppressPostMealSMBs,
             reservoir: reservoir,
             preferences: preferences,
             trioCustomOrefVariables: trioCustomOrefVariables

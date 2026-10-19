@@ -70,7 +70,7 @@ extension TrioRemoteControl {
         try await carbsStorage.storeCarbs([mealEntry], areFetchedFromRemote: false)
 
         if payload.bolusAmount != nil {
-            try await handleBolusCommand(payload)
+            try await handleBolusCommand(payload, mealAssociated: (carbsDecimal ?? 0) > 0)
             return
         }
 
