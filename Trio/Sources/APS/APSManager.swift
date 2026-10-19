@@ -168,6 +168,30 @@ struct PostMealSMBPumpHistoryVerifier {
     }
 }
 
+/// Single shared predicate for the experimental timer used by both SMB
+/// determination and the final enactment gate. No pump side effects.
+struct PostMealSMBEnactmentGate {
+    static func shouldBlockSMB(
+        enabled: Bool,
+        confirmedDeliveredAt: Date?,
+        pendingCommandAcceptedAt: Date?,
+        now: Date
+    ) -> Bool {
+        guard enabled else { return false }
+        if let delivered = confirmedDeliveredAt,
+           delivered <= now, now < delivered.addingTimeInterval(30 * 60) {
+            return true
+        }
+        // Provisional protection does NOT establish confirmed delivery.
+        // It expires after two minutes if immutable pump history never arrives.
+        if let accepted = pendingCommandAcceptedAt,
+           accepted <= now, now.timeIntervalSince(accepted) <= 120 {
+            return true
+        }
+        return false
+    }
+}
+
 final class BaseAPSManager: APSManager, Injectable {
     private let processQueue = DispatchQueue(label: "BaseAPSManager.processQueue")
     @Injected() private var storage: FileStorage!
@@ -802,19 +826,14 @@ final class BaseAPSManager: APSManager, Injectable {
         synchronizePostMealSMBSetting(now: now)
         guard settingsManager.settings.postMealSMBLockoutEnabled else { return false }
         await reconcilePostMealSMB(now: now)
-        if let delivered = postMealSMBConfirmed?.deliveredAt,
-           delivered <= now, now < delivered.addingTimeInterval(1800) {
-            return true
-        }
-        // After pump confirmation of a submitted meal command, prevent early
-        // SMB stacking while waiting briefly for final pump history. An
-        // unconfirmed/failed command cannot start the 30-minute timer.
-        if let pending = postMealSMBPending,
-           let accepted = pending.pumpAcceptedAt,
-           accepted <= now, now.timeIntervalSince(accepted) <= 120 {
-            return true
-        }
-        return false
+        // Both dosing-calculation permission and enactment call this same
+        // predicate via postMealSMBBlockActive; no change to temp basal logic.
+        return PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: settingsManager.settings.postMealSMBLockoutEnabled,
+            confirmedDeliveredAt: postMealSMBConfirmed?.deliveredAt,
+            pendingCommandAcceptedAt: postMealSMBPending?.pumpAcceptedAt,
+            now: now
+        )
     }
 
     func enactBolus(amount: Double, isSMB: Bool, callback: ((Bool, String) -> Void)?) async {
