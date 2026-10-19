@@ -38,7 +38,7 @@ final class SettingsExportTests: XCTestCase {
 
         XCTAssertTrue(fileName.hasPrefix("TrioSettings_"), "File name should start with TrioSettings_")
         XCTAssertTrue(fileName.hasSuffix(".csv"), "File name should end with .csv")
-        XCTAssertEqual(fileName.components(separatedBy: "_").count, 2, "File name should have one underscore")
+        XCTAssertEqual(fileName.components(separatedBy: "_").count, 3, "Prefix and yyyyMMdd_HHmmss timestamp should contain two underscores")
     }
 
     func testPostMealSMBLockoutDefaultOffAndRoundTrip() throws {
