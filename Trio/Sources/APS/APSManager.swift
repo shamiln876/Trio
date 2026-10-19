@@ -718,7 +718,7 @@ final class BaseAPSManager: APSManager, Injectable {
                 guard event.type == PumpEventStored.EventType.bolus.rawValue,
                       !event.isMutable, let bolus = event.bolus,
                       !bolus.isSMB, !bolus.isExternal,
-                      let id = event.syncIdentifier, !id.isEmpty,
+                      let id = (event.syncIdentifier?.isEmpty == false ? event.syncIdentifier : event.id), !id.isEmpty,
                       let delivered = bolus.amount?.doubleValue,
                       let programmed = bolus.programmedAmount?.doubleValue,
                       let timestamp = event.timestamp,
@@ -765,6 +765,13 @@ final class BaseAPSManager: APSManager, Injectable {
 
     func enactBolus(amount: Double, isSMB: Bool, callback: ((Bool, String) -> Void)?) async {
         if amount <= 0 {
+            return
+        }
+        // Additional gate for any direct automatic bolus call outside the
+        // normal enactDetermination path. Manual corrections remain permitted.
+        if isSMB, await postMealSMBBlockActive(now: Date()) {
+            debug(.apsManager, "Post-meal block rejected direct automatic SMB command")
+            callback?(false, "Automated SMB blocked by active post-meal lockout")
             return
         }
 
