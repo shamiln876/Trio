@@ -11,7 +11,7 @@ concurrency:
   group: postmeal-release-candidates
   cancel-in-progress: true
 env:
-  LOOPFOLLOW_SOURCE: 5265ac22aae73f6b8d39cd008861f2c08fcbfbba
+  LOOPFOLLOW_SOURCE: 7d218e8624b7f842810ad5427eb3f1a905cb5cf3
   CI: 'true'
 jobs:
   verify-trio:
@@ -105,6 +105,12 @@ jobs:
           if not matches: raise SystemExit('No iOS 27 iPhone simulator')
           with open(os.environ['GITHUB_ENV'],'a') as output: output.write('TEST_DEVICE='+matches[0]['udid']+'\n')
           PY
+      - name: Required LoopFollow formatting check
+        working-directory: loopfollow
+        run: |
+          swift run -c release --package-path BuildTools swiftformat . --lint \
+            --header "LoopFollow\n{file}" \
+            --exclude Pods,Generated,R.generated.swift,fastlane/swift,Dependencies,dexcom-share-client-swift
       - name: Grounding and scanner regression tests
         working-directory: loopfollow
         run: bash Scripts/test-plate-scanner.sh
