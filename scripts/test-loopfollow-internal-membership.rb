@@ -73,6 +73,15 @@ class LoopFollowInternalMembershipTest < Minitest::Test
     assert @writes.all? { |path, _body| path == "/v1/betaGroups/group/relationships/betaTesters" }
   end
 
+  def test_duplicate_email_records_with_existing_target_membership_need_no_write
+    @testers << {"id" => "external-tester", "attributes" => {"email" => @email}}
+    @members = [{"id" => "tester"}]
+    result = complete
+    assert_equal "internal_tester_membership_verified", result[:status]
+    assert_equal 1, result[:matchingExistingMembers]
+    assert_empty @writes
+  end
+
   def test_external_or_wrong_app_group_blocks_all_writes
     @group["attributes"]["isInternalGroup"] = false
     assert_raises(RuntimeError) { complete }
