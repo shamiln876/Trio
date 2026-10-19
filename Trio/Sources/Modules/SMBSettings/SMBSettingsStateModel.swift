@@ -8,7 +8,7 @@ extension SMBSettings {
 
         var units: GlucoseUnits = .mgdL
 
-        @Published var postMealSMBLockoutEnabled: Bool = false
+        @Published var postMealSMBLockoutEnabled: Bool = true
         @Published var enableSMBAlways: Bool = false
         @Published var maxDeltaBGthreshold: Decimal = 0.2
         @Published var enableSMBWithCOB: Bool = false

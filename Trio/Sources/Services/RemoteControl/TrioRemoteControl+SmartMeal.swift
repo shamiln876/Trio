@@ -28,7 +28,10 @@ extension TrioRemoteControl {
             enabled: UserDefaults.standard.bool(forKey: "isTrioRemoteControlEnabled"),
             configuration: await smartMealConfiguration(),
             receipts: await receiver.recent(),
-            allowsLowPredictionReview: true
+            allowsLowPredictionReview: true,
+            postMealSMB: PostMealSMBStatus(enabled: settings.settings.postMealSMBLockoutEnabled,
+                                         revision: settings.settings.postMealSMBLockoutRevision,
+                                         durationMinutes: 30)
         )
     }
 

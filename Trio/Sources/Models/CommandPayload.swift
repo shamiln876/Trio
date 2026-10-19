@@ -22,6 +22,7 @@ struct CommandPayload: Decodable, Sendable {
     var scheduledTime: TimeInterval?
     var returnNotification: ReturnNotificationInfo?
     var smartMeal: SmartMealRequest?
+    var postMealSMB: PostMealSMBSettingRequest?
 
     struct ReturnNotificationInfo: Decodable, Sendable {
         let productionEnvironment: Bool
@@ -55,6 +56,7 @@ struct CommandPayload: Decodable, Sendable {
         case scheduledTime = "scheduled_time"
         case returnNotification = "return_notification"
         case smartMeal = "smart_meal"
+        case postMealSMB = "post_meal_smb"
     }
 
     func humanReadableDescription() -> String {
@@ -77,6 +79,8 @@ struct CommandPayload: Decodable, Sendable {
             description += "Temp Target: \(targetDesc), Duration: \(durationDesc)."
         case .cancelTempTarget:
             description += "Cancel Temp Target command."
+        case .postMealSMB:
+            description += "Post-meal SMB block setting."
         case .smartMeal:
             description += "Smart meal transaction: \(smartMeal?.id.uuidString ?? "missing")."
         case .meal:
@@ -114,6 +118,7 @@ extension TrioRemoteControl {
         case cancelTempTarget = "cancel_temp_target"
         case meal
         case smartMeal = "smart_meal"
+        case postMealSMB = "post_meal_smb"
         case startOverride = "start_override"
         case cancelOverride = "cancel_override"
 
@@ -127,6 +132,8 @@ extension TrioRemoteControl {
                 return "Cancel Temporary Target"
             case .meal:
                 return "Meal"
+            case .postMealSMB:
+                return "Post-meal SMB block"
             case .smartMeal:
                 return "Smart Meal"
             case .startOverride:

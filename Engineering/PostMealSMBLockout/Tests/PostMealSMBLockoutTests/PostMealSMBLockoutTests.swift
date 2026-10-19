@@ -4,13 +4,19 @@ import XCTest
 final class PostMealSMBLockoutTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private let on = PostMealSMBLockoutPolicy(configuration: .init(enabled: true))
-    private let off = PostMealSMBLockoutPolicy()
+    private let off = PostMealSMBLockoutPolicy(configuration: .init(enabled: false))
 
     private func meal(_ at: Date, id: String = "pump-1") -> PostMealSMBLockoutPolicy.Event {
         .init(id: id, kind: .verifiedMealBolusDelivered, occurredAt: at, deliveredUnits: 4.2)
     }
 
-    func testDisabledByDefaultEvenWithConfirmedMeal() {
+    func testEnabledByDefault() {
+        let policy = PostMealSMBLockoutPolicy()
+        let state = policy.applying(meal(now), to: .init(), now: now)
+        XCTAssertTrue(policy.decision(state: state, now: now).shouldSuppressSMB)
+    }
+
+    func testExplicitlyDisabledEvenWithConfirmedMeal() {
         let state = off.applying(meal(now), to: .init(), now: now)
         XCTAssertFalse(off.decision(state: state, now: now).shouldSuppressSMB)
     }

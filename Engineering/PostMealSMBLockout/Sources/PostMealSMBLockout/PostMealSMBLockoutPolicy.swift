@@ -8,11 +8,11 @@ import Foundation
 /// correction boluses, SMBs, and remote command acknowledgments must not.
 public struct PostMealSMBLockoutPolicy: Codable, Sendable {
     public struct Configuration: Codable, Equatable, Sendable {
-        /// A new feature is OFF until tested and explicitly enabled.
+        /// Enabled by default; an explicit user OFF remains persisted.
         public var enabled: Bool
         public var durationSeconds: TimeInterval
 
-        public init(enabled: Bool = false, durationSeconds: TimeInterval = 30 * 60) {
+        public init(enabled: Bool = true, durationSeconds: TimeInterval = 30 * 60) {
             self.enabled = enabled
             self.durationSeconds = durationSeconds
         }

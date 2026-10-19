@@ -95,6 +95,7 @@ struct SmartMealReceiverStatus: Codable, Equatable, Sendable {
     let configuration: SmartMealConfiguration
     let receipts: [SmartMealReceipt]
     var allowsLowPredictionReview: Bool? = nil
+    var postMealSMB: PostMealSMBStatus? = nil
 
     func isCurrent(now: Date, calculationDate: Date?, bundleID: String) -> Bool {
         guard let calculationDate else { return false }
@@ -175,4 +176,23 @@ enum SmartMealWire {
         NSDecimalRound(&result, &steps, 0, .down)
         return result / 20
     }
+}
+
+/// An explicit compare-and-set prevents a delayed command from overwriting a newer choice.
+struct PostMealSMBSettingRequest: Codable, Equatable, Sendable {
+    let id: UUID
+    let expectedRevision: String
+    let enabled: Bool
+
+    func applying(to current: PostMealSMBStatus) throws -> PostMealSMBStatus {
+        if current.revision == id.uuidString, current.enabled == enabled { return current }
+        guard current.durationMinutes == 30, current.revision == expectedRevision else { throw SmartMealError.contextChanged }
+        return PostMealSMBStatus(enabled: enabled, revision: id.uuidString, durationMinutes: 30)
+    }
+}
+
+struct PostMealSMBStatus: Codable, Equatable, Sendable {
+    let enabled: Bool
+    let revision: String
+    let durationMinutes: Int
 }

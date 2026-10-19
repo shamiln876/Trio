@@ -778,6 +778,7 @@ final class BaseAPSManager: APSManager, Injectable {
         // Never infer a meal from dose/time coincidence alone. If an in-progress
         // pump dose wasn't observed, only the short provisional guard applies.
         guard let observedStart = intent.observedPumpDoseStartAt else { return }
+        let settingRevision = settingsManager.settings.postMealSMBLockoutRevision
         let ctx = CoreDataStack.shared.newTaskContext()
         ctx.name = "reconcilePostMealSMB"
         let matches: [(String, Date, Double)] = await ctx.perform {
@@ -809,7 +810,12 @@ final class BaseAPSManager: APSManager, Injectable {
                 return (id, timestamp, delivered)
             }
         }
-        guard matches.count == 1, let match = matches.first else { return }
+        // A disable/re-enable or another meal can arrive while Core Data is awaited.
+        // Never revive an old timer or replace the newer meal's pending intent.
+        guard settingsManager.settings.postMealSMBLockoutEnabled,
+              settingsManager.settings.postMealSMBLockoutRevision == settingRevision,
+              postMealSMBPending?.id == intent.id,
+              matches.count == 1, let match = matches.first else { return }
         // Explicit recent activation excludes historical deliveries.
         guard match.1 >= postMealSMBEnabledAt else { return }
         postMealSMBConfirmed = PostMealSMBConfirmed(

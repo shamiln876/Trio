@@ -41,20 +41,22 @@ final class SettingsExportTests: XCTestCase {
         XCTAssertEqual(fileName.components(separatedBy: "_").count, 3, "Prefix and yyyyMMdd_HHmmss timestamp should contain two underscores")
     }
 
-    func testPostMealSMBLockoutDefaultOffAndRoundTrip() throws {
-        XCTAssertFalse(TrioSettings().postMealSMBLockoutEnabled)
+    func testPostMealSMBLockoutDefaultOnAndRoundTrip() throws {
+        XCTAssertTrue(TrioSettings().postMealSMBLockoutEnabled)
         var settings = TrioSettings()
         settings.postMealSMBLockoutEnabled = true
         let restored = try JSONDecoder().decode(TrioSettings.self, from: JSONEncoder().encode(settings))
         XCTAssertTrue(restored.postMealSMBLockoutEnabled)
+        let oldRevision = settings.postMealSMBLockoutRevision
         settings.postMealSMBLockoutEnabled = false
+        XCTAssertNotEqual(settings.postMealSMBLockoutRevision, oldRevision)
         let disabled = try JSONDecoder().decode(TrioSettings.self, from: JSONEncoder().encode(settings))
         XCTAssertFalse(disabled.postMealSMBLockoutEnabled)
     }
 
-    func testOldSettingsWithoutMealLockoutRemainOff() throws {
+    func testOldSettingsWithoutMealLockoutDefaultOn() throws {
         let settings = try JSONDecoder().decode(TrioSettings.self, from: Data("{}".utf8))
-        XCTAssertFalse(settings.postMealSMBLockoutEnabled)
+        XCTAssertTrue(settings.postMealSMBLockoutEnabled)
     }
 
     func testVerifiedPumpDoseStartPreventsCorrectionMisclassification() {

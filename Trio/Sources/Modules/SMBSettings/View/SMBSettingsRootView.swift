@@ -34,7 +34,7 @@ extension SMBSettings {
                     label: "Post-meal SMB block (30 minutes)",
                     miniHint: "After confirmed meal-bolus delivery, suppress automated SMB for 30 minutes. Requires validated integration.",
                     verboseHint: VStack(alignment: .leading, spacing: 10) {
-                        Text("Initial setting: OFF").bold()
+                        Text("Initial setting: ON").bold()
                         Text("Experimental: this toggle requires a separately validated Trio build. Do not assume SMBs are being blocked without verified on-device status.")
                         Text("It must not suppress basal safety adjustments or manual corrections. A meal bolus must be confirmed from final pump history before the 30-minute timer starts.")
                     },

@@ -1,3 +1,5 @@
+> Current integrated continuation: see [CONTINUATION.md](CONTINUATION.md). The historical notes below describe the original prototype; their default-OFF and disconnected status are superseded for the development branch.
+
 # Post-meal SMB lockout — simulation-only policy
 
 **NOT connected to Trio dosing or a pump. OFF by default.** This is an independently testable first stage of the requested feature, not a therapy-ready implementation.
