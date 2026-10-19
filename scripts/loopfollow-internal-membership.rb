@@ -9,7 +9,10 @@ def ensure_loopfollow_internal_membership(request:, email:, user_id:, app_id:, g
   visible = user.fetch("relationships").fetch("visibleApps").fetch("data").map { |app| app.fetch("id") }
   raise "Unexpected accepted account" unless attrs.fetch("username").downcase == email
   raise "Unexpected accepted account role" unless attrs["roles"] == ["MARKETING"]
-  raise "Unexpected accepted account app access" unless [false, nil].include?(attrs["allAppsVisible"]) && visible == [app_id]
+  # A human may have granted this existing account other apps after accepting.
+  # Do not edit/revoke that access. Only enroll in the already-authorized LF
+  # group, and require that the account already has access to LF.
+  raise "Unexpected accepted account app access" unless [true, false, nil].include?(attrs["allAppsVisible"]) && (attrs["allAppsVisible"] == true || visible.include?(app_id))
   raise "Unexpected accepted account provisioning access" unless attrs["provisioningAllowed"] == false
 
   group = request.call("/v1/betaGroups/#{group_id}?include=app").fetch("data")
@@ -34,5 +37,6 @@ def ensure_loopfollow_internal_membership(request:, email:, user_id:, app_id:, g
   raise "Tester membership not confirmed" unless members.include?(tester.fetch("id"))
 
   {status: "internal_tester_membership_verified", appID: app_id, groupID: group_id,
-   otherAppsGranted: false, provisioningAllowed: false, roles: attrs["roles"]}
+   otherAppsGranted: false, provisioningAllowed: false, roles: attrs["roles"], accountScopeUnchanged: true,
+   existingAccountScope: {allAppsVisible: attrs["allAppsVisible"], visibleAppIDs: visible}}
 end

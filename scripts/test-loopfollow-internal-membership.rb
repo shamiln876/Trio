@@ -59,9 +59,18 @@ class LoopFollowInternalMembershipTest < Minitest::Test
     assert_raises(RuntimeError) { complete }
     assert_empty @writes
     @user["attributes"]["roles"] = ["MARKETING"]
-    @user["relationships"]["visibleApps"]["data"] << {"id" => "other"}
+    @user["relationships"]["visibleApps"]["data"] = [{"id" => "other"}]
     assert_raises(RuntimeError) { complete }
     assert_empty @writes
+  end
+
+  def test_preexisting_extra_app_access_is_preserved_without_new_account_grants
+    @user["relationships"]["visibleApps"]["data"] << {"id" => "other"}
+    result = complete
+    assert_equal true, result[:accountScopeUnchanged]
+    assert_equal false, result[:otherAppsGranted]
+    assert_equal ["lf", "other"], result[:existingAccountScope][:visibleAppIDs]
+    assert @writes.all? { |path, _body| path == "/v1/betaGroups/group/relationships/betaTesters" }
   end
 
   def test_external_or_wrong_app_group_blocks_all_writes
