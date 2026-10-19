@@ -73,4 +73,49 @@ final class PostMealSMBLockoutTests: XCTestCase {
         let invalid = PostMealSMBLockoutPolicy(configuration: .init(enabled: true, durationSeconds: 10))
         XCTAssertFalse(invalid.decision(state: state, now: now).shouldSuppressSMB)
     }
+
+    func testToggleOffImmediatelyDisablesAndPreventsRetroactiveTimer() {
+        var policy = on
+        var state = policy.applying(meal(now), to: .init(), now: now)
+        XCTAssertTrue(policy.decision(state: state, now: now).shouldSuppressSMB)
+        policy.setEnabled(false, state: &state, now: now.addingTimeInterval(120))
+        XCTAssertFalse(policy.decision(state: state, now: now.addingTimeInterval(121)).shouldSuppressSMB)
+        policy.setEnabled(true, state: &state, now: now.addingTimeInterval(240))
+        XCTAssertFalse(policy.decision(state: state, now: now.addingTimeInterval(241)).shouldSuppressSMB)
+        state = policy.applying(meal(now.addingTimeInterval(300), id: "new-meal"), to: state, now: now.addingTimeInterval(300))
+        XCTAssertTrue(policy.decision(state: state, now: now.addingTimeInterval(301)).shouldSuppressSMB)
+    }
+
+    func testLatePumpHistoryFromBeforeEnableCannotStart() {
+        var policy = off
+        var state = PostMealSMBLockoutPolicy.State()
+        policy.setEnabled(true, state: &state, now: now.addingTimeInterval(500))
+        state = policy.applying(meal(now.addingTimeInterval(100), id: "earlier"), to: state, now: now.addingTimeInterval(600))
+        XCTAssertFalse(policy.decision(state: state, now: now.addingTimeInterval(600)).shouldSuppressSMB)
+        state = policy.applying(meal(now.addingTimeInterval(550), id: "later"), to: state, now: now.addingTimeInterval(600))
+        XCTAssertTrue(policy.decision(state: state, now: now.addingTimeInterval(600)).shouldSuppressSMB)
+    }
+
+    func testPreferenceAndTimerSurviveRestartButOffIsPersistent() throws {
+        var policy = off
+        var state = PostMealSMBLockoutPolicy.State()
+        policy.setEnabled(true, state: &state, now: now)
+        state = policy.applying(meal(now.addingTimeInterval(5)), to: state, now: now.addingTimeInterval(5))
+        let newPolicy = try JSONDecoder().decode(PostMealSMBLockoutPolicy.self, from: JSONEncoder().encode(policy))
+        let newState = try JSONDecoder().decode(PostMealSMBLockoutPolicy.State.self, from: JSONEncoder().encode(state))
+        XCTAssertTrue(newPolicy.configuration.enabled)
+        XCTAssertTrue(newPolicy.decision(state: newState, now: now.addingTimeInterval(130)).shouldSuppressSMB)
+        policy.setEnabled(false, state: &state, now: now.addingTimeInterval(200))
+        let disabled = try JSONDecoder().decode(PostMealSMBLockoutPolicy.self, from: JSONEncoder().encode(policy))
+        XCTAssertFalse(disabled.configuration.enabled)
+    }
+
+    func testIdenticalToggleDoesNotResetExistingTimer() {
+        var policy = on
+        var state = policy.applying(meal(now), to: .init(), now: now)
+        policy.setEnabled(true, state: &state, now: now.addingTimeInterval(900))
+        XCTAssertTrue(policy.decision(state: state, now: now.addingTimeInterval(1799)).shouldSuppressSMB)
+        XCTAssertFalse(policy.decision(state: state, now: now.addingTimeInterval(1800)).shouldSuppressSMB)
+    }
+
 }
