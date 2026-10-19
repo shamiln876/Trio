@@ -128,6 +128,9 @@ private struct PostMealSMBIntent: Codable, Equatable {
     let requestedAt: Date
     let requestedUnits: Double
     var pumpAcceptedAt: Date?
+    /// Start time of the exact user-initiated bolus observed in pump status
+    /// after the successful command. Nil means no defensible delivery linkage.
+    var observedPumpDoseStartAt: Date?
 }
 private struct PostMealSMBConfirmed: Codable, Equatable {
     let eventID: String
@@ -667,13 +670,25 @@ final class BaseAPSManager: APSManager, Injectable {
         if settingsManager.settings.postMealSMBLockoutEnabled {
             postMealSMBPending = PostMealSMBIntent(
                 id: intendedID, requestedAt: Date(),
-                requestedUnits: amount, pumpAcceptedAt: nil
+                requestedUnits: amount, pumpAcceptedAt: nil,
+                observedPumpDoseStartAt: nil
             )
         }
         await enactBolus(amount: amount, isSMB: false) { [weak self] succeeded, message in
             if let self, self.postMealSMBPending?.id == intendedID {
                 if succeeded, var pending = self.postMealSMBPending {
                     pending.pumpAcceptedAt = Date()
+                    // Omnipod DASH exposes the active DoseEntry in pump status,
+                    // including its start time. Link that dose to subsequent
+                    // immutable pump history, not an unrelated same-sized bolus.
+                    if let pump = self.pumpManager,
+                       case let .inProgress(dose) = pump.status.bolusState,
+                       dose.type == .bolus, dose.automatic == false,
+                       abs(dose.programmedUnits - pending.requestedUnits) <= 0.051,
+                       dose.startDate >= pending.requestedAt.addingTimeInterval(-15),
+                       dose.startDate <= Date() {
+                        pending.observedPumpDoseStartAt = dose.startDate
+                    }
                     self.postMealSMBPending = pending
                 } else if !succeeded {
                     self.postMealSMBPending = nil
@@ -706,6 +721,9 @@ final class BaseAPSManager: APSManager, Injectable {
             postMealSMBPending = nil
             return
         }
+        // Never infer a meal from dose/time coincidence alone. If an in-progress
+        // pump dose wasn't observed, only the short provisional guard applies.
+        guard let observedStart = intent.observedPumpDoseStartAt else { return }
         let ctx = CoreDataStack.shared.newTaskContext()
         ctx.name = "reconcilePostMealSMB"
         let matches: [(String, Date, Double)] = await ctx.perform {
@@ -725,6 +743,7 @@ final class BaseAPSManager: APSManager, Injectable {
                       delivered > 0, delivered.isFinite, programmed.isFinite,
                       abs(delivered - intent.requestedUnits) <= 0.051,
                       abs(programmed - intent.requestedUnits) <= 0.051,
+                      abs(timestamp.timeIntervalSince(observedStart)) <= 1,
                       (-15 ... 240).contains(timestamp.timeIntervalSince(intent.requestedAt)),
                       timestamp <= now
                 else { return nil }
