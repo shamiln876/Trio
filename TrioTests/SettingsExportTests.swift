@@ -65,6 +65,87 @@ final class SettingsExportTests: XCTestCase {
         XCTAssertFalse(settings.postMealSMBLockoutEnabled)
     }
 
+    func testVerifiedPumpDoseStartPreventsCorrectionMisclassification() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        let verified = PostMealSMBPumpHistoryVerifier.matches(
+            requestedAt: t, requestedUnits: 4.2,
+            observedPumpDoseStartAt: t.addingTimeInterval(12),
+            deliveredAt: t.addingTimeInterval(12),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isMutable: false, isSMB: false, isExternal: false,
+            now: t.addingTimeInterval(40)
+        )
+        XCTAssertTrue(verified)
+
+        // Same-size correction at 30 seconds must not match a meal's
+        // actual in-progress dose that started at 12 seconds.
+        let correction = PostMealSMBPumpHistoryVerifier.matches(
+            requestedAt: t, requestedUnits: 4.2,
+            observedPumpDoseStartAt: t.addingTimeInterval(12),
+            deliveredAt: t.addingTimeInterval(30),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isMutable: false, isSMB: false, isExternal: false,
+            now: t.addingTimeInterval(40)
+        )
+        XCTAssertFalse(correction)
+    }
+
+    func testMissingPumpObservedDoseCannotClaimConfirmedMeal() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertFalse(PostMealSMBPumpHistoryVerifier.matches(
+            requestedAt: t, requestedUnits: 4.2,
+            observedPumpDoseStartAt: nil,
+            deliveredAt: t.addingTimeInterval(10),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isMutable: false, isSMB: false, isExternal: false,
+            now: t.addingTimeInterval(30)
+        ))
+    }
+
+    func testIncompleteOrUnfinalizedPumpBolusIsRejected() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        func match(delivered: Double, mutable: Bool) -> Bool {
+            PostMealSMBPumpHistoryVerifier.matches(
+                requestedAt: t, requestedUnits: 4.2,
+                observedPumpDoseStartAt: t.addingTimeInterval(10),
+                deliveredAt: t.addingTimeInterval(10),
+                deliveredUnits: delivered, programmedUnits: 4.2,
+                isMutable: mutable, isSMB: false, isExternal: false,
+                now: t.addingTimeInterval(30)
+            )
+        }
+        XCTAssertFalse(match(delivered: 2.1, mutable: false))
+        XCTAssertFalse(match(delivered: 4.2, mutable: true))
+    }
+
+    func testAutomaticAndExternalPumpBolusesCannotConfirmMeal() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        func match(smb: Bool, external: Bool) -> Bool {
+            PostMealSMBPumpHistoryVerifier.matches(
+                requestedAt: t, requestedUnits: 4.2,
+                observedPumpDoseStartAt: t.addingTimeInterval(10),
+                deliveredAt: t.addingTimeInterval(10),
+                deliveredUnits: 4.2, programmedUnits: 4.2,
+                isMutable: false, isSMB: smb, isExternal: external,
+                now: t.addingTimeInterval(30)
+            )
+        }
+        XCTAssertFalse(match(smb: true, external: false))
+        XCTAssertFalse(match(smb: false, external: true))
+    }
+
+    func testPumpHistoryCannotConfirmDeliveryFromFuture() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertFalse(PostMealSMBPumpHistoryVerifier.matches(
+            requestedAt: t, requestedUnits: 4.2,
+            observedPumpDoseStartAt: t.addingTimeInterval(10),
+            deliveredAt: t.addingTimeInterval(10),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isMutable: false, isSMB: false, isExternal: false,
+            now: t.addingTimeInterval(5)
+        ))
+    }
+
     // Helper function to test CSV escaping (extracted from Settings.StateModel)
     private func csvEscape(_ value: String) -> String {
         if value.contains(",") || value.contains("\"") || value.contains("\n") {
