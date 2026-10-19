@@ -12,7 +12,14 @@ Intended behavior after *verified pump delivery* of a bolus explicitly classifie
 
 ## Verification
 
-Run `swift test` under `Engineering/PostMealSMBLockout/`; nine pure policy tests passed in an isolated Linux Swift 6.2.1 toolchain on 2026-10-18. This **does not** constitute testing in the iOS app, simulator, real dosing algorithm or pump.
+Run `swift test` under `Engineering/PostMealSMBLockout/`; thirteen pure policy tests passed in an isolated Linux Swift 6.2.1 toolchain on 2026-10-19. They include persistent ON/OFF preference, immediate disable, no retroactive restart after re-enabling, and delayed pump-history exclusion. See GitHub Actions `Post-meal SMB isolated policy tests` for repeatable CI verification. This **does not** constitute testing in the iOS app, simulator, real dosing algorithm or pump.
+
+## Persistent user control (policy only)
+
+- Intended setting: **Post-meal SMB block ON/OFF**, with a 30-minute default duration. After approved installation and first explicit activation, ON remains selected across meals and restarts until the user turns it OFF.
+- Switching OFF immediately clears the active lockout; switching back ON does not revive a previously delivered meal. Duplicate delivered pump event identifiers cannot restart the timer.
+- The isolated configuration and state can be encoded/decoded; the real app settings persistence, LoopFollow remote toggle, status display, synchronization, and audit trail **are not implemented**.
+- The production version must be OFF until the separately validated feature is explicitly activated. This draft cannot modify pump dosing.
 
 ## Required before integration, build, or deployment
 
