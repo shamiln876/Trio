@@ -184,10 +184,10 @@ enum PostMealSMBEnactmentGate {
         {
             return true
         }
-        // Provisional protection does NOT establish confirmed delivery.
-        // It expires after two minutes if immutable pump history never arrives.
+        // Pump acceptance starts the meal wait, without claiming full delivery.
+        // Its independent persisted anchor survives delayed or missing history.
         if let accepted = pendingCommandAcceptedAt,
-           accepted <= now, now.timeIntervalSince(accepted) <= 120
+           accepted <= now, now < accepted.addingTimeInterval(30 * 60)
         {
             return true
         }
@@ -210,9 +210,11 @@ final class BaseAPSManager: APSManager, Injectable {
     @Injected() private var broadcaster: Broadcaster!
     @Injected() private var trioAlertManager: TrioAlertManager!
     @Persisted(key: "lastLoopStartDate") private var lastLoopStartDate: Date = .distantPast
+    @Persisted(key: "postMealSMBBlockLastRevision") private var postMealSMBLastRevision: String = ""
     @Persisted(key: "postMealSMBBlockLastEnabled") private var postMealSMBLastEnabled: Bool = false
     @Persisted(key: "postMealSMBBlockEnabledAt") private var postMealSMBEnabledAt: Date = .distantPast
     @Persisted(key: "postMealSMBBlockPendingIntent") private var postMealSMBPending: PostMealSMBIntent? = nil
+    @Persisted(key: "postMealSMBBlockInitiatedAt") private var postMealSMBInitiatedAt: Date? = nil
     @Persisted(key: "postMealSMBBlockConfirmed") private var postMealSMBConfirmed: PostMealSMBConfirmed? = nil
     private var lastDosingMode: DosingMode?
     @Persisted(key: "lastLoopDate") var lastLoopDate: Date = .distantPast {
@@ -724,6 +726,7 @@ final class BaseAPSManager: APSManager, Injectable {
             return }
         synchronizePostMealSMBSetting(now: Date())
         let intendedID = UUID().uuidString
+        let mealSettingRevision = settingsManager.settings.postMealSMBLockoutRevision
         if settingsManager.settings.postMealSMBLockoutEnabled {
             postMealSMBPending = PostMealSMBIntent(
                 id: intendedID, requestedAt: Date(),
@@ -732,6 +735,12 @@ final class BaseAPSManager: APSManager, Injectable {
             )
         }
         await enactBolus(amount: amount, isSMB: false) { [weak self] succeeded, message in
+            // The successful DASH callback reports command acceptance/start, not
+            // completion. That is the explicit trigger for the SMB waiting period.
+            if succeeded, let self, self.settingsManager.settings.postMealSMBLockoutEnabled,
+               self.settingsManager.settings.postMealSMBLockoutRevision == mealSettingRevision {
+                self.postMealSMBInitiatedAt = Date()
+            }
             if let self, self.postMealSMBPending?.id == intendedID {
                 if succeeded, var pending = self.postMealSMBPending {
                     pending.pumpAcceptedAt = Date()
@@ -760,11 +769,14 @@ final class BaseAPSManager: APSManager, Injectable {
     /// activate an earlier meal (or resurrect an old pending command).
     private func synchronizePostMealSMBSetting(now: Date) {
         let enabled = settingsManager.settings.postMealSMBLockoutEnabled
-        guard postMealSMBLastEnabled != enabled else { return }
+        let revision = settingsManager.settings.postMealSMBLockoutRevision
+        guard postMealSMBLastEnabled != enabled || postMealSMBLastRevision != revision else { return }
         postMealSMBLastEnabled = enabled
+        postMealSMBLastRevision = revision
         postMealSMBEnabledAt = now
         postMealSMBPending = nil
         postMealSMBConfirmed = nil
+        postMealSMBInitiatedAt = nil
         debug(.apsManager, "Post-meal SMB block explicitly changed to \(enabled ? "ON" : "OFF")")
     }
 
@@ -841,7 +853,7 @@ final class BaseAPSManager: APSManager, Injectable {
         return PostMealSMBEnactmentGate.shouldBlockSMB(
             enabled: settingsManager.settings.postMealSMBLockoutEnabled,
             confirmedDeliveredAt: postMealSMBConfirmed?.deliveredAt,
-            pendingCommandAcceptedAt: postMealSMBPending?.pumpAcceptedAt,
+            pendingCommandAcceptedAt: postMealSMBInitiatedAt ?? postMealSMBPending?.pumpAcceptedAt,
             now: now
         )
     }

@@ -161,15 +161,15 @@ final class SettingsExportTests: XCTestCase {
         ))
     }
 
-    func testLivePendingGuardCannotMasqueradeAsConfirmedThirtyMinuteBlock() {
+    func testInitiatedMealWaitCoversThirtyMinutesWithoutFinalHistory() {
         let t = Date(timeIntervalSince1970: 1_800_000_000)
         XCTAssertTrue(PostMealSMBEnactmentGate.shouldBlockSMB(
             enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: t,
-            now: t.addingTimeInterval(120)
+            now: t.addingTimeInterval(1799)
         ))
         XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
             enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: t,
-            now: t.addingTimeInterval(121)
+            now: t.addingTimeInterval(1800)
         ))
         XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
             enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: nil,

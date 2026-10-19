@@ -8,7 +8,8 @@ with tempfile.TemporaryDirectory(prefix='post-meal-runtime-') as temporary:
     (package/'Sources/Trio').mkdir(parents=True)
     (package/'Tests/RuntimeTests').mkdir(parents=True)
     source = (root/'Trio/Sources/APS/APSManager.swift').read_text()
-    gates = source[source.index('struct PostMealSMBPumpHistoryVerifier {'):source.index('final class BaseAPSManager:')]
+    marker = 'enum PostMealSMBPumpHistoryVerifier {' if 'enum PostMealSMBPumpHistoryVerifier {' in source else 'struct PostMealSMBPumpHistoryVerifier {'
+    gates = source[source.index(marker):source.index('final class BaseAPSManager:')]
     (package/'Sources/Trio/Gates.swift').write_text('import Foundation\n'+gates)
     tests = (root/'TrioTests/SettingsExportTests.swift').read_text()
     tests = tests[tests.index('    func testVerifiedPumpDoseStart'):tests.index('    // Helper function')]

@@ -10,7 +10,7 @@ The matching LoopFollow branch is `feature/post-meal-smb-control`, based on the 
 
 The user clarified: block only once after the bolus; FPU and the scheduled second-carb entry must continue and must not restart the block. The existing meal-bolus-only trigger is retained. The user subsequently requested the second entry at **+35 minutes**. The matching LoopFollow development branch changes the Rice/default split delay to +35; the SMB duration remains 30 minutes. Explicitly customized positive delays remain editable and Pizza keeps its separate +60-minute preset. At exact expiry the gate permits normal SMB calculation, but carbs alone do not guarantee an SMB dose.
 
-Timestamp limitation: Smart Meal's second row uses request.confirmedAt, while the verified gate uses pump dose start. +35 adds margin but is not a substitute for validating controller delivery latency and the inherited confirmation gap. No FPU entry restarts the block.
+Timestamp limitation: Smart Meal's second row uses request.confirmedAt, while the verified gate uses pump dose start. +35 adds margin but is not a substitute for validating controller delivery latency and the controller initiation timestamp. No FPU entry restarts the block.
 
 The user explicitly approved pushing both named development branches to the existing Trio and LoopFollow GitHub repositories. This does not authorize a merge or app distribution.
 
@@ -21,9 +21,11 @@ The user explicitly approved pushing both named development branches to the exis
 - Actual sender encoder / Trio decoder / receiver integration: 4 passing tests, including toggle command, correlated status, exact replay and reordered-disable rejection. Run matching LoopFollow `Scripts/test-smart-meal-integration.sh /path/to/Trio`.
 - The full unsigned Trio and LoopFollow arm64 simulator builds passed. The LoopFollow screen test passed for ON/OFF/unsupported controller states (one test with three launches). Native Trio settings tests and checks of the updated +35-minute sender schedule are being completed; consult the final handoff for their result. Device delivery integration remains unverified.
 
-## Known unresolved delivery limitation
+## Continuous wait and delivery semantics
 
-The inherited integration provisionally blocks for only 120 seconds after command acceptance. Its confirmed 30-minute gate requires an observed pump-status dose and a unique immutable pump-history match, and discards unmatched intent after 300 seconds. Long boluses/history lag can therefore leave a protection gap or no confirmed timer. Do not describe this as reliable continuous 30-minute blocking until the actual DASH path is verified and this gap is resolved. An API success callback is not proof of full delivery.
+The 120-second gap has been removed in this continuation. A successful callback from the explicit meal-bolus path records a separate persisted initiation timestamp; both SMB calculation and enactment honor the full 30-minute window from that timestamp. Discarding an unmatched history intent after 300 seconds no longer removes the timer. Final pump history remains separate evidence of delivered insulin and is never inferred from API acceptance. The 8 exact production-gate tests pass with a no-final-history case at 1799 seconds and expiry at 1800 seconds. A failed command does not set the initiation timestamp. Delayed carbs, FPU and correction-only boluses never set it.
+
+Setting synchronization now compares revisions as well as the boolean, so OFF/ON transitions between loop checks clear prior anchors. A late meal callback must still match the setting revision from its initiation; it cannot revive a timer after OFF/ON. Physical DASH callback behavior, crash windows around pump acceptance/persistence and interrupted bolus handling still need device validation. The history matcher remains strict about complete delivered units for its audit result, but final history is no longer a prerequisite for the waiting period.
 
 Settings and intent persistence use the app's existing storage; disk-failure acknowledgement, reboot behavior, concurrent calls, multiple meal boluses, interrupted delivery and pump replacement still require integrated validation. The remote state currently reports configuration, not a verified active countdown. Existing debug logs do not provide a complete suppressed-dose/total-basal audit. Historical replay cannot establish the glucose outcome of withheld insulin without a validated counterfactual model.
 
