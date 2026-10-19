@@ -35,7 +35,7 @@ jobs:
   build:
     if: github.ref == 'refs/heads/feature/smart-meal-receiver'
     name: Build and verify Smart Meal update
-    runs-on: ${{ inputs.status_only && 'macos-15' || 'macos-26' }}
+    runs-on: ${{ inputs.status_only && 'ubuntu-24.04' || 'macos-26' }}
     timeout-minutes: 90
     steps:
       # Read the input from the event file so the recipient is masked before
@@ -113,6 +113,12 @@ jobs:
           FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
           FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+      - name: Set up Ruby for access-only verification
+        if: inputs.status_only
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler: "4.0.12"
       - name: Install reviewed LoopFollow dependencies
         if: inputs.build_loopfollow
         working-directory: loopfollow
