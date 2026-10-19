@@ -2,6 +2,8 @@
 
 Continue the existing PR #3 integration, not a second carb-trigger implementation. This branch adds an enabled-by-default preference (missing fields migrate to ON; explicit OFF remains OFF), a revisioned authenticated `post_meal_smb` remote setting, and an optional controller-reported capability/state in the existing Smart Meal status. LoopFollow displays controller state and does not claim APNs submission is acknowledgement. Local setting changes also change the revision; stale/reordered remote commands cannot replace a newer choice. Remote setting changes carry no treatment fields. A reconciliation guard prevents an awaited history query from restoring an old intent after a setting change or new meal.
 
+A further matcher regression fix normalizes the requested dose to the pump increment before recording intent and requires delivered and programmed units to match within numeric precision. A missing 0.05 U DASH pulse is rejected as partial delivery; the exact production-gate suite passes that added assertion.
+
 The matching LoopFollow branch is `feature/post-meal-smb-control`, based on the existing scanner build 24 source. Existing FPU and scheduled second-carb processing remains intact. No Nightscout infrastructure changes are needed.
 
 ## Confirmed trigger behavior

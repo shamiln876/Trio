@@ -38,7 +38,11 @@ final class SettingsExportTests: XCTestCase {
 
         XCTAssertTrue(fileName.hasPrefix("TrioSettings_"), "File name should start with TrioSettings_")
         XCTAssertTrue(fileName.hasSuffix(".csv"), "File name should end with .csv")
-        XCTAssertEqual(fileName.components(separatedBy: "_").count, 3, "Prefix and yyyyMMdd_HHmmss timestamp should contain two underscores")
+        XCTAssertEqual(
+            fileName.components(separatedBy: "_").count,
+            3,
+            "Prefix and yyyyMMdd_HHmmss timestamp should contain two underscores"
+        )
     }
 
     func testPostMealSMBLockoutDefaultOnAndRoundTrip() throws {
@@ -109,6 +113,7 @@ final class SettingsExportTests: XCTestCase {
             )
         }
         XCTAssertFalse(match(delivered: 2.1, mutable: false))
+        XCTAssertFalse(match(delivered: 4.15, mutable: false), "One missing DASH pulse is partial delivery")
         XCTAssertFalse(match(delivered: 4.2, mutable: true))
     }
 

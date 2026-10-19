@@ -132,6 +132,7 @@ private struct PostMealSMBIntent: Codable, Equatable {
     /// after the successful command. Nil means no defensible delivery linkage.
     var observedPumpDoseStartAt: Date?
 }
+
 private struct PostMealSMBConfirmed: Codable, Equatable {
     let eventID: String
     let deliveredAt: Date
@@ -140,7 +141,7 @@ private struct PostMealSMBConfirmed: Codable, Equatable {
 
 /// Pure, testable verification applied by APSManager before any confirmed
 /// post-meal timer. The dose must have been observed in pump status first.
-struct PostMealSMBPumpHistoryVerifier {
+enum PostMealSMBPumpHistoryVerifier {
     static func matches(
         requestedAt: Date,
         requestedUnits: Double,
@@ -161,8 +162,8 @@ struct PostMealSMBPumpHistoryVerifier {
               requestedAt <= now, observedStart <= now, deliveredAt <= now,
               (-15 ... 240).contains(deliveredAt.timeIntervalSince(requestedAt)),
               abs(deliveredAt.timeIntervalSince(observedStart)) <= 1,
-              abs(deliveredUnits - requestedUnits) <= 0.051,
-              abs(programmedUnits - requestedUnits) <= 0.051
+              abs(deliveredUnits - programmedUnits) < 0.000001,
+              abs(programmedUnits - requestedUnits) < 0.000001
         else { return false }
         return true
     }
@@ -170,7 +171,7 @@ struct PostMealSMBPumpHistoryVerifier {
 
 /// Single shared predicate for the experimental timer used by both SMB
 /// determination and the final enactment gate. No pump side effects.
-struct PostMealSMBEnactmentGate {
+enum PostMealSMBEnactmentGate {
     static func shouldBlockSMB(
         enabled: Bool,
         confirmedDeliveredAt: Date?,
@@ -179,13 +180,15 @@ struct PostMealSMBEnactmentGate {
     ) -> Bool {
         guard enabled else { return false }
         if let delivered = confirmedDeliveredAt,
-           delivered <= now, now < delivered.addingTimeInterval(30 * 60) {
+           delivered <= now, now < delivered.addingTimeInterval(30 * 60)
+        {
             return true
         }
         // Provisional protection does NOT establish confirmed delivery.
         // It expires after two minutes if immutable pump history never arrives.
         if let accepted = pendingCommandAcceptedAt,
-           accepted <= now, now.timeIntervalSince(accepted) <= 120 {
+           accepted <= now, now.timeIntervalSince(accepted) <= 120
+        {
             return true
         }
         return false
@@ -714,17 +717,17 @@ final class BaseAPSManager: APSManager, Injectable {
         return min(rounded, maxBolus)
     }
 
-
     /// Local/remote user-confirmed MEAL boluses use this entry point.
     /// A remote acknowledgement or a successful API call is NOT proof of delivery.
     func enactMealBolus(amount: Double, callback: ((Bool, String) -> Void)?) async {
-        guard amount > 0 else { callback?(false, "Invalid meal bolus"); return }
+        guard amount > 0 else { callback?(false, "Invalid meal bolus")
+            return }
         synchronizePostMealSMBSetting(now: Date())
         let intendedID = UUID().uuidString
         if settingsManager.settings.postMealSMBLockoutEnabled {
             postMealSMBPending = PostMealSMBIntent(
                 id: intendedID, requestedAt: Date(),
-                requestedUnits: amount, pumpAcceptedAt: nil,
+                requestedUnits: pumpManager?.roundToSupportedBolusVolume(units: amount) ?? amount, pumpAcceptedAt: nil,
                 observedPumpDoseStartAt: nil
             )
         }
@@ -740,7 +743,8 @@ final class BaseAPSManager: APSManager, Injectable {
                        dose.type == .bolus, dose.automatic == false,
                        abs(dose.programmedUnits - pending.requestedUnits) <= 0.051,
                        dose.startDate >= pending.requestedAt.addingTimeInterval(-15),
-                       dose.startDate <= Date() {
+                       dose.startDate <= Date()
+                    {
                         pending.observedPumpDoseStartAt = dose.startDate
                     }
                     self.postMealSMBPending = pending
