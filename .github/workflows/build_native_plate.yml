@@ -70,13 +70,15 @@ jobs:
       - name: Require successful checks for this exact source before upload
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GH_PAT }}
           script: |
             const required = ['.github/workflows/native_plate_scanner.yml',
               '.github/workflows/plate_scanner_tests.yml', '.github/workflows/lint.yml'];
             for (let attempt = 0; attempt < 20; attempt++) {
-              const response = await fetch('https://api.github.com/repos/shamiln876/LoopFollow/actions/runs?event=pull_request&per_page=50&head_sha=' + process.env.LOOPFOLLOW_SOURCE_COMMIT);
-              if (!response.ok) throw new Error('Cannot verify public LoopFollow checks: HTTP ' + response.status);
-              const data = await response.json();
+              const {data} = await github.rest.actions.listWorkflowRunsForRepo({
+                owner: 'shamiln876', repo: 'LoopFollow',
+                head_sha: process.env.LOOPFOLLOW_SOURCE_COMMIT, event: 'pull_request', per_page: 50
+              });
               const checks = required.map(path => data.workflow_runs.find(run => run.path === path));
               const failed = checks.find(run => run && run.status === 'completed' && run.conclusion !== 'success');
               if (failed) throw new Error('Required check did not pass: ' + failed.html_url);
