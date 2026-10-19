@@ -1,0 +1,100 @@
+name: Publish verified post-meal SMB updates
+on:
+  push:
+    branches: [feature/post-meal-smb-loopfollow]
+    paths: [.github/workflows/post_meal_publish.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: postmeal-testflight-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [trio, loopfollow]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: e3ac1a46ee10d8025d1ac1384b63cab484a00160
+          persist-credentials: false
+      - name: Require successful exact candidate run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/shamiln876/Trio/actions/runs/39214239054 > "$RUNNER_TEMP/run.json"
+          gh api repos/shamiln876/Trio/actions/runs/39214239054/jobs > "$RUNNER_TEMP/jobs.json"
+          python3 - <<'PY'
+          import json,os
+          p=os.environ['RUNNER_TEMP']
+          r=json.load(open(p+'/run.json')); j=json.load(open(p+'/jobs.json'))['jobs']
+          assert r['head_sha']=='e3ac1a46ee10d8025d1ac1384b63cab484a00160'
+          assert r['status']=='completed' and r['conclusion']=='success'
+          required={'verify-trio','verify-loopfollow','sign-trio','sign-loopfollow'}
+          assert {x['name'] for x in j}==required
+          assert all(x['conclusion']=='success' for x in j)
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: postmeal-${{ matrix.app }}-candidate
+          path: candidate
+          run-id: 39214239054
+          github-token: ${{ github.token }}
+      - uses: actions/checkout@v5
+        if: matrix.app == 'loopfollow'
+        with:
+          repository: shamiln876/LoopFollow
+          ref: 7d218e8624b7f842810ad5427eb3f1a905cb5cf3
+          path: loopfollow
+          persist-credentials: false
+      - name: Verify candidate bytes, signature and exact source again
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          if [ "$APP" = trio ]; then
+            (cd candidate && shasum -a 256 -c Trio.ipa.sha256)
+            python3 scripts/verify-smart-meal-distribution.py candidate/Trio.ipa --source e3ac1a46ee10d8025d1ac1384b63cab484a00160 --output candidate/verified.json
+          else
+            (cd candidate && shasum -a 256 -c LoopFollow.ipa.sha256)
+            python3 loopfollow/Scripts/verify-smart-meal-distribution.py candidate/LoopFollow.ipa --source 7d218e8624b7f842810ad5427eb3f1a905cb5cf3 --output candidate/verified.json
+          fi
+      - name: Install upload tools
+        run: bundle install
+      - name: Upload existing signed package to internal TestFlight
+        env:
+          APP: ${{ matrix.app }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/postmeal-upload/fastlane"
+          cat > "$RUNNER_TEMP/postmeal-upload/fastlane/Fastfile" <<'RUBY'
+          lane :publish do
+            key = app_store_connect_api_key(key_id: ENV.fetch('FASTLANE_KEY_ID'), issuer_id: ENV.fetch('FASTLANE_ISSUER_ID'), key_content: ENV.fetch('FASTLANE_KEY'))
+            app = ENV.fetch('APP')
+            ipa = File.join(ENV.fetch('GITHUB_WORKSPACE'), 'candidate', app == 'trio' ? 'Trio.ipa' : 'LoopFollow.ipa')
+            upload_to_testflight(api_key: key, ipa: ipa, skip_submission: true, distribute_external: false, skip_waiting_for_build_processing: false, changelog: 'Post-meal SMB block: default on, one 30-minute block after accepted meal bolus. LoopFollow toggle. Rice split second carbs at 35 minutes; FPU and scheduled carbs do not restart the block.')
+          end
+          RUBY
+          cd "$RUNNER_TEMP/postmeal-upload"
+          BUNDLE_GEMFILE="$GITHUB_WORKSPACE/Gemfile" bundle exec fastlane publish
+      - name: Confirm Apple processing and existing internal availability
+        env:
+          APP: ${{ matrix.app }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: |
+          if [ "$APP" = trio ]; then bundle=org.nightscout.D3GG62L9X8.trio; else bundle=com.D3GG62L9X8.LoopFollow; fi
+          bundle exec ruby scripts/testflight-read-status.rb "$bundle" candidate/apple-status.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postmeal-${{ matrix.app }}-publication
+          path: |
+            candidate/verified.json
+            candidate/apple-status.json
