@@ -72,7 +72,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: shamiln876/LoopFollow
-          ref: 5dc6b35a03a9aa5822462697a9e729426b7e54e9
+          ref: 29b61d08e6cd058cf1a226f2bc97c02d1f4f52be
           path: loopfollow
           submodules: recursive
           persist-credentials: false
@@ -80,7 +80,7 @@ jobs:
         if: inputs.build_loopfollow
         working-directory: loopfollow
         run: |
-          test "$(git rev-parse HEAD)" = "5dc6b35a03a9aa5822462697a9e729426b7e54e9"
+          test "$(git rev-parse HEAD)" = "29b61d08e6cd058cf1a226f2bc97c02d1f4f52be"
           git rev-parse HEAD > smart-meal-source.txt
       - name: Select existing Xcode version
         if: ${{ !inputs.status_only }}
