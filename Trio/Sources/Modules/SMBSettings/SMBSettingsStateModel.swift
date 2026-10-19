@@ -8,6 +8,7 @@ extension SMBSettings {
 
         var units: GlucoseUnits = .mgdL
 
+        @Published var postMealSMBLockoutEnabled: Bool = false
         @Published var enableSMBAlways: Bool = false
         @Published var maxDeltaBGthreshold: Decimal = 0.2
         @Published var enableSMBWithCOB: Bool = false
@@ -24,6 +25,7 @@ extension SMBSettings {
         override func subscribe() {
             units = settingsManager.settings.units
 
+            subscribeSetting(\.postMealSMBLockoutEnabled, on: $postMealSMBLockoutEnabled) { postMealSMBLockoutEnabled = $0 }
             subscribePreferencesSetting(\.enableSMBAlways, on: $enableSMBAlways) { enableSMBAlways = $0 }
             subscribePreferencesSetting(\.maxDeltaBGthreshold, on: $maxDeltaBGthreshold) { maxDeltaBGthreshold = $0 }
             subscribePreferencesSetting(\.enableSMBWithCOB, on: $enableSMBWithCOB) { enableSMBWithCOB = $0 }
