@@ -1,0 +1,57 @@
+name: Post-meal SMB integrated iOS tests (no pump)
+
+on:
+  push:
+    branches:
+      - feature/post-meal-smb-lockout-prototype
+    paths:
+      - '.github/workflows/post-meal-smb-ios-tests.yml'
+      - 'TrioTests/SettingsExportTests.swift'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  settings-verified-on-simulator:
+    runs-on: macos-26
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Select Xcode matching simulator
+        run: |
+          if [ -d /Applications/Xcode_26.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+          else
+            xcode-select -p
+          fi
+          xcodebuild -version
+      - name: Run persistence tests in iOS simulator with no pump
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -workspace Trio.xcworkspace \
+            -scheme 'Trio Tests' \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' \
+            -parallel-testing-enabled NO \
+            -only-testing:TrioTests/SettingsExportTests \
+            CODE_SIGN_IDENTITY='-' \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM='' \
+            PROVISIONING_PROFILE_SPECIFIER='' \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            2>&1 | tee /tmp/post-meal-smb-ios-tests.log
+      - name: Surface errors on failure
+        if: failure()
+        run: |
+          grep -nE 'error:|Failing tests:|TEST FAILED|BUILD FAILED|could not be launched' /tmp/post-meal-smb-ios-tests.log | tail -n 90 || true
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-meal-smb-ios-test-errors
+          path: /tmp/post-meal-smb-ios-tests.log
+          retention-days: 3
