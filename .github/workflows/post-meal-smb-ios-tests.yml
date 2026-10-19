@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/post-meal-smb-ios-tests.yml'
       - 'TrioTests/SettingsExportTests.swift'
+      - 'TrioTests/OpenAPSSwiftTests/DetermineBasalSmbMicroBolusTests.swift'
       - 'Trio.xcodeproj/project.pbxproj'
       - 'Trio/Sources/Models/TrioSettings.swift'
   workflow_dispatch:
@@ -40,6 +41,7 @@ jobs:
             -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' \
             -parallel-testing-enabled NO \
             -only-testing:TrioTests/SettingsExportTests \
+            -only-testing:TrioTests/DetermineBasalSmbMicroBolusTests \
             CODE_SIGN_IDENTITY='-' \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM='' \
@@ -55,9 +57,11 @@ jobs:
           completed = [int(pair[0]) for pair in re.findall(r'Executed\s+(\d+)\s+tests?,\s+with\s+(\d+)\s+failures?', log)]
           has_suite = bool(re.search(r"Test Suite 'SettingsExportTests' passed", log))
           has_specific = 'testPostMealSMBLockoutDefaultOffAndRoundTrip' in log and 'testOldSettingsWithoutMealLockoutRemainOff' in log
-          if not (has_suite and has_specific and any(n >= 2 for n in completed) and '** TEST SUCCEEDED **' in log):
+          has_algorithm = ('testPostMealPermissionSuppressesSMB' in log or
+                           'Post-meal block suppresses a real SMB decision without cancelling determination' in log)
+          if not (has_suite and has_specific and has_algorithm and any(n >= 2 for n in completed) and '** TEST SUCCEEDED **' in log):
               print('FAIL: iOS simulator did not execute and pass lockout-specific XCTest cases', file=sys.stderr)
-              print(f'counts={completed}, suite={has_suite}, specific={has_specific}', file=sys.stderr)
+              print(f'counts={completed}, suite={has_suite}, specific={has_specific}, algorithm={has_algorithm}', file=sys.stderr)
               sys.exit(1)
           print(f'PASS: settings lockout XCTest cases executed; test suite counts={completed}')
           PY
