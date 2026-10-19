@@ -4,9 +4,11 @@ Continue the existing PR #3 integration, not a second carb-trigger implementatio
 
 The matching LoopFollow branch is `feature/post-meal-smb-control`, based on the existing scanner build 24 source. Existing FPU and scheduled second-carb processing remains intact. No Nightscout infrastructure changes are needed.
 
-## Trigger clarification pending
+## Confirmed trigger behavior
 
-The recovered prior conversation specified one block from a confirmed meal bolus, without delayed carbs resetting it. The latest user correction emphatically requires preserving FPU and scheduled second carbs, but it is unclear whether those entries should also restart the block. The current branch preserves the existing meal-bolus trigger while awaiting that answer. Do not silently equate preserving those features with resetting the timer for each generated FPU entry.
+The user clarified: block only once after the bolus; FPU and the scheduled second-carb entry must continue and must not restart the block. The existing meal-bolus-only trigger is retained. The suggested timing is a 30-minute block with the second entry at +31 minutes, rather than reducing the block to 29 minutes. The current Rice preset is still +30 minutes: do not claim it has been moved. Before changing it, reconcile the timestamp mismatch: Smart Meal's second row uses request.confirmedAt, while the verified timer uses pump dose start. APNs latency can make a one-minute margin insufficient. Coordinate these anchors rather than promising the second row always falls after expiry. At the exact expiry, the gate's comparison permits normal SMB calculation; carbs alone never guarantee an SMB dose.
+
+The user explicitly approved pushing both named development branches to the existing Trio and LoopFollow GitHub repositories. This does not authorize a merge or app distribution.
 
 ## Validation
 
