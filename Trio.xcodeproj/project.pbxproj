@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AE1E037270EE923532C7EA27 /* SmartMealCarbBatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC021919AF98E8EF250BC1FB /* SmartMealCarbBatchTests.swift */; };
+		26CA515B0ED116C7A9AE0D59 /* SmartMealCarbBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B35511865112ECAEA1CC690 /* SmartMealCarbBatch.swift */; };
+		C0965DE368C72C94A99301BF /* SmartMealReceiverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 436D38D211C533E4D2D8EEFC /* SmartMealReceiverTests.swift */; };
+		942B698B7DDEA410924ACACC /* TrioRemoteControl+SmartMeal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EEF2DDAD061233F87D52DC /* TrioRemoteControl+SmartMeal.swift */; };
+		1E846BA267DDB0483C3F28CD /* SmartMealReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E58A02966FC50B66B5DD2C /* SmartMealReceiver.swift */; };
+		69D1739591C0A89C7154C9F7 /* SmartMealProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A84337EE87B6ABCCCAA9D335 /* SmartMealProtocol.swift */; };
 		041D1E995A6AE92E9289DC49 /* TreatmentsDataFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D1A7CA8C10C4403D4BBFA7 /* TreatmentsDataFlow.swift */; };
 		0D9A5E34A899219C5C4CDFAF /* HistoryStateModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9455FA2D92E77A6C4AFED8A3 /* HistoryStateModel.swift */; };
 		110AEDE32C5193D200615CC9 /* BolusIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110AEDE02C5193D100615CC9 /* BolusIntent.swift */; };
@@ -1106,6 +1112,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		BC021919AF98E8EF250BC1FB /* SmartMealCarbBatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartMealCarbBatchTests.swift; sourceTree = "<group>"; };
+		1B35511865112ECAEA1CC690 /* SmartMealCarbBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartMealCarbBatch.swift; sourceTree = "<group>"; };
+		436D38D211C533E4D2D8EEFC /* SmartMealReceiverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartMealReceiverTests.swift; sourceTree = "<group>"; };
+		66EEF2DDAD061233F87D52DC /* TrioRemoteControl+SmartMeal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TrioRemoteControl+SmartMeal.swift"; sourceTree = "<group>"; };
+		31E58A02966FC50B66B5DD2C /* SmartMealReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartMealReceiver.swift; sourceTree = "<group>"; };
+		A84337EE87B6ABCCCAA9D335 /* SmartMealProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartMealProtocol.swift; sourceTree = "<group>"; };
 		10E61A0885164081B57C357C /* NightscoutUploadSerializer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NightscoutUploadSerializer.swift; sourceTree = "<group>"; };
 		110AEDE02C5193D100615CC9 /* BolusIntent.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BolusIntent.swift; sourceTree = "<group>"; };
 		110AEDE12C5193D100615CC9 /* BolusIntentRequest.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BolusIntentRequest.swift; sourceTree = "<group>"; };
@@ -2954,6 +2966,7 @@
 				19D4E4EA29FC6A9F00351451 /* Charts.swift */,
 				DD6D67E32C9C253500660C9B /* ColorSchemeOption.swift */,
 				DD9ECB692CA99F6C00AA7C45 /* CommandPayload.swift */,
+				A84337EE87B6ABCCCAA9D335 /* SmartMealProtocol.swift */,
 				E592A36F2CEEC01E009A472C /* ContactTrickEntry.swift */,
 				3811DF0125CA9FEA00A708ED /* Credentials.swift */,
 				19A910352A24D6D700C8951B /* DateFilter.swift */,
@@ -3240,6 +3253,8 @@
 				B3919BBB515547118D684CD2 /* LoopIndicatorTests.swift */,
 				B3919BBB515547118D684CC2 /* MaxIOBSuggestionTests.swift */,
 				B3919BBB515547118D684CB2 /* DosingModeMigrationTests.swift */,
+				436D38D211C533E4D2D8EEFC /* SmartMealReceiverTests.swift */,
+				BC021919AF98E8EF250BC1FB /* SmartMealCarbBatchTests.swift */,
 				BD8FC0532D66186000B95AED /* TestError.swift */,
 				C39FF1EC12CF4B1EBB13BE26 /* NightscoutUploadSerializerTests.swift */,
 				6EFF860E684B4C9488D438DD /* NightscoutImportRoundTripTests.swift */,
@@ -4467,6 +4482,9 @@
 				DD32CF9D2CC824C2003686D6 /* TrioRemoteControl+Override.swift */,
 				DD32CF9B2CC82495003686D6 /* TrioRemoteControl+TempTarget.swift */,
 				DD32CF992CC8246F003686D6 /* TrioRemoteControl+Meal.swift */,
+				66EEF2DDAD061233F87D52DC /* TrioRemoteControl+SmartMeal.swift */,
+				31E58A02966FC50B66B5DD2C /* SmartMealReceiver.swift */,
+				1B35511865112ECAEA1CC690 /* SmartMealCarbBatch.swift */,
 				DD32CF972CC82460003686D6 /* TrioRemoteControl+Bolus.swift */,
 				DD9ECB672CA99F4500AA7C45 /* TrioRemoteControl.swift */,
 			);
@@ -5219,6 +5237,7 @@
 				38E44537274E411700EC9A94 /* Disk+Helpers.swift in Sources */,
 				388E5A6025B6F2310019842D /* Autosens.swift in Sources */,
 				DD9ECB6A2CA99F6C00AA7C45 /* CommandPayload.swift in Sources */,
+				69D1739591C0A89C7154C9F7 /* SmartMealProtocol.swift in Sources */,
 				3811DE8F25C9D80400A708ED /* User.swift in Sources */,
 				5825A1BE2C97335C0046467E /* EditTempTargetForm.swift in Sources */,
 				BD47FDDD2D8B65B10043966B /* GlucoseTargetStepView.swift in Sources */,
@@ -5359,6 +5378,9 @@
 				BD249D942D42FC5E00412DEB /* TotalDailyDoseChart.swift in Sources */,
 				BD249D902D42FC4500412DEB /* MealStatsView.swift in Sources */,
 				DD32CF9A2CC8247B003686D6 /* TrioRemoteControl+Meal.swift in Sources */,
+				942B698B7DDEA410924ACACC /* TrioRemoteControl+SmartMeal.swift in Sources */,
+				1E846BA267DDB0483C3F28CD /* SmartMealReceiver.swift in Sources */,
+				26CA515B0ED116C7A9AE0D59 /* SmartMealCarbBatch.swift in Sources */,
 				BDF34F832C10C5B600D51995 /* DataManager.swift in Sources */,
 				38B4F3C625E5017E00E76A18 /* NotificationCenter.swift in Sources */,
 				19D466A729AA2C22004D5F33 /* MealSettingsStateModel.swift in Sources */,
@@ -6052,6 +6074,8 @@
 				41740E936552456AAC0EDDC3 /* LoopIndicatorTests.swift in Sources */,
 				41740E936552456AAC0EDCC3 /* MaxIOBSuggestionTests.swift in Sources */,
 				41740E936552456AAC0EDBC3 /* DosingModeMigrationTests.swift in Sources */,
+				C0965DE368C72C94A99301BF /* SmartMealReceiverTests.swift in Sources */,
+				AE1E037270EE923532C7EA27 /* SmartMealCarbBatchTests.swift in Sources */,
 				B015AFE52E500000000D7351 /* BolusSafetyValidatorTests.swift in Sources */,
 				BD8FC0712D661B0000B95AED /* TidepoolTherapySettingsTests.swift in Sources */,
 				CA03000000000000000010C2 /* AlertCatalogRegistryOmniFaultTests.swift in Sources */,

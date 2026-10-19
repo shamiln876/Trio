@@ -17,9 +17,14 @@ protocol NightscoutManager: GlucoseSource {
     func uploadOverrides() async
     func uploadTempTargets() async
     func uploadProfiles() async throws
+    func requestSmartMealStatusUpload()
     @discardableResult func uploadNoteTreatment(note: String) async -> Bool
     func importSettings() async -> ScheduledNightscoutProfile?
     var cgmURL: URL? { get }
+}
+
+extension NightscoutManager {
+    func requestSmartMealStatusUpload() {}
 }
 
 final class BaseNightscoutManager: NightscoutManager, Injectable {
@@ -56,6 +61,8 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
             await self?.uploadSerializer.request(uploadPipeline)
         }
     }
+
+    func requestSmartMealStatusUpload() { requestUpload(.deviceStatus) }
 
     /// Dispatches to a pipeline's upload routine. Runs inside the serializer; must only
     /// call `performUpload*()` functions, never the public `upload*()` entry points.
@@ -657,7 +664,9 @@ final class BaseNightscoutManager: NightscoutManager, Injectable {
             enacted: settingsManager.settings.dosingMode.automation != .off ? enactedToUpload : nil,
             version: Bundle.main.releaseVersionNumber ?? "Unknown",
             recommendedBolus: recommendedBolus,
-            dosingMode: settingsManager.settings.dosingMode.rawValue
+            dosingMode: settingsManager.settings.dosingMode.rawValue,
+            smartMeal: await TrioRemoteControl.shared
+                .smartMealStatus(calculationDate: (suggestedToUpload ?? enactedToUpload)?.deliverAt)
         )
 
         debug(.nightscout, "To be uploaded openapsStatus: \(openapsStatus)")

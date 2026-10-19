@@ -15,6 +15,7 @@ struct OpenAPSStatus: JSON {
     let recommendedBolus: Decimal?
     /// Raw value, not the localized name: followers parse this.
     let dosingMode: String
+    var smartMeal: SmartMealReceiverStatus? = nil
 }
 
 struct NSPumpStatus: JSON {
