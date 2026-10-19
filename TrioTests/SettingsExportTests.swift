@@ -138,6 +138,46 @@ final class SettingsExportTests: XCTestCase {
         ))
     }
 
+    func testLiveThirtyMinuteEnactmentGateExpiresAtExactlyThirtyMinutes() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertTrue(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: t, pendingCommandAcceptedAt: nil,
+            now: t.addingTimeInterval(1799)
+        ))
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: t, pendingCommandAcceptedAt: nil,
+            now: t.addingTimeInterval(1800)
+        ))
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: t, pendingCommandAcceptedAt: nil,
+            now: t.addingTimeInterval(-1)
+        ))
+    }
+
+    func testLivePendingGuardCannotMasqueradeAsConfirmedThirtyMinuteBlock() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertTrue(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: t,
+            now: t.addingTimeInterval(120)
+        ))
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: t,
+            now: t.addingTimeInterval(121)
+        ))
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: true, confirmedDeliveredAt: nil, pendingCommandAcceptedAt: nil,
+            now: t.addingTimeInterval(60)
+        ))
+    }
+
+    func testLiveManualOffOverridesOldConfirmedDoseAndPendingGuard() {
+        let t = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertFalse(PostMealSMBEnactmentGate.shouldBlockSMB(
+            enabled: false, confirmedDeliveredAt: t, pendingCommandAcceptedAt: t,
+            now: t.addingTimeInterval(1)
+        ))
+    }
+
     // Helper function to test CSV escaping (extracted from Settings.StateModel)
     private func csvEscape(_ value: String) -> String {
         if value.contains(",") || value.contains("\"") || value.contains("\n") {
