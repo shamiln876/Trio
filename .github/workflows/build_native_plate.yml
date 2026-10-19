@@ -79,7 +79,8 @@ jobs:
                 owner: 'shamiln876', repo: 'LoopFollow',
                 head_sha: process.env.LOOPFOLLOW_SOURCE_COMMIT, event: 'pull_request', per_page: 50
               });
-              const checks = required.map(path => data.workflow_runs.find(run => run.path === path));
+              // PR-description edits skip lint by design; require an actual executed check for this source.
+              const checks = required.map(path => data.workflow_runs.find(run => run.path === path && run.conclusion !== 'skipped'));
               const failed = checks.find(run => run && run.status === 'completed' && run.conclusion !== 'success');
               if (failed) throw new Error('Required check did not pass: ' + failed.html_url);
               if (checks.every(run => run && run.status === 'completed' && run.conclusion === 'success')) {
