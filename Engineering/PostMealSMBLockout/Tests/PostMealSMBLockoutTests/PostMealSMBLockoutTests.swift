@@ -118,4 +118,94 @@ final class PostMealSMBLockoutTests: XCTestCase {
         XCTAssertFalse(policy.decision(state: state, now: now.addingTimeInterval(1800)).shouldSuppressSMB)
     }
 
+
+    func testMatchingFinalPumpDeliveryRequiresUniqueMealIntent() {
+        let matcher = VerifiedMealBolusMatcher()
+        let intent = VerifiedMealBolusMatcher.MealIntent(
+            transactionID: "smart-meal-1", requestedAt: now, requestedUnits: 4.2
+        )
+        let delivery = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "pod-dose-001", timestamp: now.addingTimeInterval(12),
+            deliveredUnits: 4.2, programmedUnits: 4.2,
+            isAutomaticSMB: false, isFinal: true
+        )
+        let result = matcher.confirmedEvent(for: intent, pumpHistory: [delivery], now: now.addingTimeInterval(30))
+        XCTAssertEqual(result?.id, "pod-dose-001")
+        XCTAssertEqual(result?.kind, .verifiedMealBolusDelivered)
+        XCTAssertEqual(result?.deliveredUnits, 4.2)
+    }
+
+    func testMatcherRejectsAttemptWithoutPumpConfirmation() {
+        let matcher = VerifiedMealBolusMatcher()
+        let intent = VerifiedMealBolusMatcher.MealIntent(
+            transactionID: "unconfirmed", requestedAt: now, requestedUnits: 4.2
+        )
+        XCTAssertNil(matcher.confirmedEvent(for: intent, pumpHistory: [], now: now.addingTimeInterval(30)))
+        let pending = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "pending", timestamp: now.addingTimeInterval(5),
+            deliveredUnits: 4.2, programmedUnits: 4.2, isAutomaticSMB: false, isFinal: false
+        )
+        XCTAssertNil(matcher.confirmedEvent(for: intent, pumpHistory: [pending], now: now.addingTimeInterval(30)))
+    }
+
+    func testMatcherRejectsPartialDeliveryAndSMB() {
+        let matcher = VerifiedMealBolusMatcher()
+        let intent = VerifiedMealBolusMatcher.MealIntent(
+            transactionID: "meal", requestedAt: now, requestedUnits: 4.2
+        )
+        let partial = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "partial", timestamp: now.addingTimeInterval(8),
+            deliveredUnits: 2.1, programmedUnits: 4.2, isAutomaticSMB: false, isFinal: true
+        )
+        let smb = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "automatic", timestamp: now.addingTimeInterval(8),
+            deliveredUnits: 4.2, programmedUnits: 4.2, isAutomaticSMB: true, isFinal: true
+        )
+        XCTAssertNil(matcher.confirmedEvent(for: intent, pumpHistory: [partial, smb], now: now.addingTimeInterval(30)))
+    }
+
+    func testMatcherRejectsAmbiguousMatchingBoluses() {
+        let matcher = VerifiedMealBolusMatcher()
+        let intent = VerifiedMealBolusMatcher.MealIntent(
+            transactionID: "meal", requestedAt: now, requestedUnits: 4.2
+        )
+        let a = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "one", timestamp: now.addingTimeInterval(4),
+            deliveredUnits: 4.2, programmedUnits: 4.2, isAutomaticSMB: false, isFinal: true
+        )
+        let b = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "two", timestamp: now.addingTimeInterval(5),
+            deliveredUnits: 4.2, programmedUnits: 4.2, isAutomaticSMB: false, isFinal: true
+        )
+        XCTAssertNil(matcher.confirmedEvent(for: intent, pumpHistory: [a, b], now: now.addingTimeInterval(30)))
+    }
+
+    func testMatcherRejectsMismatchedDoseAndOldDelivery() {
+        let matcher = VerifiedMealBolusMatcher()
+        let intent = VerifiedMealBolusMatcher.MealIntent(
+            transactionID: "meal", requestedAt: now, requestedUnits: 4.2
+        )
+        let wrongDose = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "wrong-dose", timestamp: now.addingTimeInterval(8),
+            deliveredUnits: 5.2, programmedUnits: 5.2, isAutomaticSMB: false, isFinal: true
+        )
+        let old = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "old", timestamp: now.addingTimeInterval(-180),
+            deliveredUnits: 4.2, programmedUnits: 4.2, isAutomaticSMB: false, isFinal: true
+        )
+        XCTAssertNil(matcher.confirmedEvent(for: intent, pumpHistory: [wrongDose, old], now: now.addingTimeInterval(30)))
+    }
+
+    func testMatcherNeverAcceptsDeliveryInTheFuture() {
+        let matcher = VerifiedMealBolusMatcher()
+        let intent = VerifiedMealBolusMatcher.MealIntent(
+            transactionID: "meal", requestedAt: now, requestedUnits: 4.2
+        )
+        let future = VerifiedMealBolusMatcher.PumpDelivery(
+            eventID: "future", timestamp: now.addingTimeInterval(360),
+            deliveredUnits: 4.2, programmedUnits: 4.2, isAutomaticSMB: false, isFinal: true
+        )
+        XCTAssertNil(matcher.confirmedEvent(for: intent, pumpHistory: [future], now: now.addingTimeInterval(20)))
+    }
+
 }
