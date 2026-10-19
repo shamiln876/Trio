@@ -134,3 +134,86 @@ public struct PostMealSMBLockoutPolicy: Codable, Sendable {
         )
     }
 }
+
+
+/// Correlates a *declared meal intent* with finalized pump history.
+/// This is not a pump-command acknowledgement and must never be used to infer
+/// that an attempted bolus completed without an immutable history record.
+/// No dosing path currently calls this matcher.
+public struct VerifiedMealBolusMatcher: Sendable {
+    public struct MealIntent: Equatable, Sendable {
+        public let transactionID: String
+        public let requestedAt: Date
+        public let requestedUnits: Double
+
+        public init(transactionID: String, requestedAt: Date, requestedUnits: Double) {
+            self.transactionID = transactionID
+            self.requestedAt = requestedAt
+            self.requestedUnits = requestedUnits
+        }
+    }
+
+    public struct PumpDelivery: Equatable, Sendable {
+        public let eventID: String
+        public let timestamp: Date
+        public let deliveredUnits: Double
+        public let programmedUnits: Double
+        public let isAutomaticSMB: Bool
+        public let isFinal: Bool
+
+        public init(
+            eventID: String,
+            timestamp: Date,
+            deliveredUnits: Double,
+            programmedUnits: Double,
+            isAutomaticSMB: Bool,
+            isFinal: Bool
+        ) {
+            self.eventID = eventID
+            self.timestamp = timestamp
+            self.deliveredUnits = deliveredUnits
+            self.programmedUnits = programmedUnits
+            self.isAutomaticSMB = isAutomaticSMB
+            self.isFinal = isFinal
+        }
+    }
+
+    /// Only a unique, finalized, full-dose match may start the meal timer.
+    /// Rejected/partial/cancelled/ambiguous/unmatched doses must be reviewed
+    /// rather than silently disabling other sources of insulin.
+    public func confirmedEvent(
+        for intent: MealIntent,
+        pumpHistory: [PumpDelivery],
+        now: Date
+    ) -> PostMealSMBLockoutPolicy.Event? {
+        guard !intent.transactionID.isEmpty,
+              intent.requestedUnits.isFinite, intent.requestedUnits > 0,
+              intent.requestedAt <= now,
+              intent.requestedAt.timeIntervalSince(now) >= -24 * 60 * 60
+        else { return nil }
+
+        let candidates = pumpHistory.filter { delivery in
+            guard !delivery.eventID.isEmpty, delivery.isFinal, !delivery.isAutomaticSMB,
+                  delivery.deliveredUnits.isFinite, delivery.programmedUnits.isFinite,
+                  delivery.deliveredUnits > 0, delivery.programmedUnits > 0,
+                  delivery.timestamp <= now,
+                  // Local pump event timestamps can precede request timestamps by
+                  // small clock/rounding differences. Delayed uploads are separate.
+                  (-15 ... 240).contains(delivery.timestamp.timeIntervalSince(intent.requestedAt))
+            else { return false }
+
+            // Omnipod dose increments vary; accept at most 0.05 U representation
+            // difference, but reject materially incomplete boluses.
+            let tolerance = 0.051
+            return abs(delivery.programmedUnits - intent.requestedUnits) <= tolerance
+                && abs(delivery.deliveredUnits - intent.requestedUnits) <= tolerance
+        }
+        guard candidates.count == 1, let match = candidates.first else { return nil }
+        return PostMealSMBLockoutPolicy.Event(
+            id: match.eventID,
+            kind: .verifiedMealBolusDelivered,
+            occurredAt: match.timestamp,
+            deliveredUnits: match.deliveredUnits
+        )
+    }
+}
