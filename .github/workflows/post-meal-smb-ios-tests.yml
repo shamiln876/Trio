@@ -52,7 +52,7 @@ jobs:
           from pathlib import Path
           import re, sys
           log = Path('/tmp/post-meal-smb-ios-tests.log').read_text(errors='replace')
-          completed = [int(x) for x in re.findall(r'Executed\\s+(\\d+)\\s+tests?,\\s+with\\s+(\\d+)\\s+failures?', log) for x in [x[0]]]
+          completed = [int(pair[0]) for pair in re.findall(r'Executed\s+(\d+)\s+tests?,\s+with\s+(\d+)\s+failures?', log)]
           has_suite = bool(re.search(r"Test Suite 'SettingsExportTests' passed", log))
           has_specific = 'testPostMealSMBLockoutDefaultOffAndRoundTrip' in log and 'testOldSettingsWithoutMealLockoutRemainOff' in log
           if not (has_suite and has_specific and any(n >= 2 for n in completed) and '** TEST SUCCEEDED **' in log):
