@@ -14,6 +14,7 @@ protocol APSManager {
     /// they want feedback even if the underlying error is "transient".
     func markNextLoopUserInitiated()
     func enactBolus(amount: Double, isSMB: Bool, callback: ((Bool, String) -> Void)?) async
+    func enactMealBolus(amount: Double, callback: ((Bool, String) -> Void)?) async
     var pumpManager: PumpManagerUI? { get set }
     var bluetoothManager: BluetoothStateManager? { get }
     var pumpDisplayState: CurrentValueSubject<PumpDisplayState?, Never> { get }
@@ -120,6 +121,20 @@ private actor LoopGuard {
     }
 }
 
+/// Durable enough for app restarts, but this experimental integration stays
+/// disabled until explicitly enabled in a validated build.
+private struct PostMealSMBIntent: Codable, Equatable {
+    let id: String
+    let requestedAt: Date
+    let requestedUnits: Double
+    var pumpAcceptedAt: Date?
+}
+private struct PostMealSMBConfirmed: Codable, Equatable {
+    let eventID: String
+    let deliveredAt: Date
+    let deliveredUnits: Double
+}
+
 final class BaseAPSManager: APSManager, Injectable {
     private let processQueue = DispatchQueue(label: "BaseAPSManager.processQueue")
     @Injected() private var storage: FileStorage!
@@ -135,6 +150,10 @@ final class BaseAPSManager: APSManager, Injectable {
     @Injected() private var broadcaster: Broadcaster!
     @Injected() private var trioAlertManager: TrioAlertManager!
     @Persisted(key: "lastLoopStartDate") private var lastLoopStartDate: Date = .distantPast
+    @Persisted(key: "postMealSMBBlockLastEnabled") private var postMealSMBLastEnabled: Bool = false
+    @Persisted(key: "postMealSMBBlockEnabledAt") private var postMealSMBEnabledAt: Date = .distantPast
+    @Persisted(key: "postMealSMBBlockPendingIntent") private var postMealSMBPending: PostMealSMBIntent? = nil
+    @Persisted(key: "postMealSMBBlockConfirmed") private var postMealSMBConfirmed: PostMealSMBConfirmed? = nil
     private var lastDosingMode: DosingMode?
     @Persisted(key: "lastLoopDate") var lastLoopDate: Date = .distantPast {
         didSet {
@@ -544,12 +563,14 @@ final class BaseAPSManager: APSManager, Injectable {
             let currentTemp = try await fetchCurrentTempBasal(date: now)
             _ = try await autosense()
 
+            let suppressPostMealSMBs = await postMealSMBBlockActive(now: now)
             let determination = try await openAPS.determineBasal(
                 for: settingsManager.settings.dosingMode,
                 currentTemp: currentTemp,
                 supportedBasalRates: supportedBasalRates,
                 shouldSmoothGlucose: settingsManager.settings.smoothGlucose,
-                clock: now
+                clock: now,
+                suppressPostMealSMBs: suppressPostMealSMBs
             )
             iobFileDidUpdate.send(())
 
@@ -634,6 +655,112 @@ final class BaseAPSManager: APSManager, Injectable {
         let rounded = Decimal(pump.roundToSupportedBolusVolume(units: Double(amount)))
         let maxBolus = Decimal(pump.roundToSupportedBolusVolume(units: Double(settingsManager.pumpSettings.maxBolus)))
         return min(rounded, maxBolus)
+    }
+
+
+    /// Local/remote user-confirmed MEAL boluses use this entry point.
+    /// A remote acknowledgement or a successful API call is NOT proof of delivery.
+    func enactMealBolus(amount: Double, callback: ((Bool, String) -> Void)?) async {
+        guard amount > 0 else { callback?(false, "Invalid meal bolus"); return }
+        synchronizePostMealSMBSetting(now: Date())
+        let intendedID = UUID().uuidString
+        if settingsManager.settings.postMealSMBLockoutEnabled {
+            postMealSMBPending = PostMealSMBIntent(
+                id: intendedID, requestedAt: Date(),
+                requestedUnits: amount, pumpAcceptedAt: nil
+            )
+        }
+        await enactBolus(amount: amount, isSMB: false) { [weak self] succeeded, message in
+            if let self, self.postMealSMBPending?.id == intendedID {
+                if succeeded, var pending = self.postMealSMBPending {
+                    pending.pumpAcceptedAt = Date()
+                    self.postMealSMBPending = pending
+                } else if !succeeded {
+                    self.postMealSMBPending = nil
+                }
+            }
+            callback?(succeeded, message)
+        }
+    }
+
+    /// Preserve manual user OFF across restarts. A new ON transition can never
+    /// activate an earlier meal (or resurrect an old pending command).
+    private func synchronizePostMealSMBSetting(now: Date) {
+        let enabled = settingsManager.settings.postMealSMBLockoutEnabled
+        guard postMealSMBLastEnabled != enabled else { return }
+        postMealSMBLastEnabled = enabled
+        postMealSMBEnabledAt = now
+        postMealSMBPending = nil
+        postMealSMBConfirmed = nil
+        debug(.apsManager, "Post-meal SMB block explicitly changed to \\(enabled ? "ON" : "OFF")")
+    }
+
+    /// Reconcile an explicit meal command with one uniquely matching FINAL
+    /// pump-history entry. Do not confuse submitted/initiated insulin with
+    /// immutable delivered insulin. Unknown, partial or ambiguous events
+    /// do not start a 30-minute confirmed-delivery timer.
+    private func reconcilePostMealSMB(now: Date) async {
+        guard settingsManager.settings.postMealSMBLockoutEnabled,
+              let intent = postMealSMBPending else { return }
+        guard now.timeIntervalSince(intent.requestedAt) <= 300 else {
+            postMealSMBPending = nil
+            return
+        }
+        let ctx = CoreDataStack.shared.newTaskContext()
+        ctx.name = "reconcilePostMealSMB"
+        let matches: [(String, Date, Double)] = await ctx.perform {
+            let request = PumpEventStored.fetchRequest() as NSFetchRequest<PumpEventStored>
+            request.predicate = NSPredicate.pumpHistoryLast24h
+            request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+            request.fetchLimit = 100
+            guard let events = try? ctx.fetch(request) else { return [] }
+            return events.compactMap { event -> (String, Date, Double)? in
+                guard event.type == PumpEventStored.EventType.bolus.rawValue,
+                      !event.isMutable, let bolus = event.bolus,
+                      !bolus.isSMB, !bolus.isExternal,
+                      let id = event.syncIdentifier, !id.isEmpty,
+                      let delivered = bolus.amount?.doubleValue,
+                      let programmed = bolus.programmedAmount?.doubleValue,
+                      let timestamp = event.timestamp,
+                      delivered > 0, delivered.isFinite, programmed.isFinite,
+                      abs(delivered - intent.requestedUnits) <= 0.051,
+                      abs(programmed - intent.requestedUnits) <= 0.051,
+                      (-15 ... 240).contains(timestamp.timeIntervalSince(intent.requestedAt)),
+                      timestamp <= now
+                else { return nil }
+                return (id, timestamp, delivered)
+            }
+        }
+        guard matches.count == 1, let match = matches.first else { return }
+        // Explicit recent activation excludes historical deliveries.
+        guard match.1 >= postMealSMBEnabledAt else { return }
+        postMealSMBConfirmed = PostMealSMBConfirmed(
+            eventID: match.0, deliveredAt: match.1, deliveredUnits: match.2
+        )
+        postMealSMBPending = nil
+        debug(.apsManager, "Post-meal SMB block confirmed from final pump-history event")
+    }
+
+    /// This check is repeated directly before automatic pump enactment to
+    /// protect against a determination calculated before the meal was confirmed.
+    /// No manual bolus is blocked here. No temp basal decision is changed.
+    private func postMealSMBBlockActive(now: Date = Date()) async -> Bool {
+        synchronizePostMealSMBSetting(now: now)
+        guard settingsManager.settings.postMealSMBLockoutEnabled else { return false }
+        await reconcilePostMealSMB(now: now)
+        if let delivered = postMealSMBConfirmed?.deliveredAt,
+           delivered <= now, now < delivered.addingTimeInterval(1800) {
+            return true
+        }
+        // After pump confirmation of a submitted meal command, prevent early
+        // SMB stacking while waiting briefly for final pump history. An
+        // unconfirmed/failed command cannot start the 30-minute timer.
+        if let pending = postMealSMBPending,
+           let accepted = pending.pumpAcceptedAt,
+           accepted <= now, now.timeIntervalSince(accepted) <= 120 {
+            return true
+        }
+        return false
     }
 
     func enactBolus(amount: Double, isSMB: Bool, callback: ((Bool, String) -> Void)?) async {
@@ -799,7 +926,11 @@ final class BaseAPSManager: APSManager, Injectable {
 
         // only perform a bolus if smbToDeliver is > 0
         if let smb = smbToDeliver, smb.compare(NSDecimalNumber(value: 0)) == .orderedDescending {
-            try await performBolus(pump: pump, smbToDeliver: smb)
+            if await postMealSMBBlockActive(now: Date()) {
+                debug(.apsManager, "Post-meal SMB block suppressed automatic SMB at enactment")
+            } else {
+                try await performBolus(pump: pump, smbToDeliver: smb)
+            }
         }
     }
 
@@ -1503,6 +1634,7 @@ private extension PumpManager {
 
 extension BaseAPSManager: SettingsObserver {
     func settingsDidChange(_ settings: TrioSettings) {
+        synchronizePostMealSMBSetting(now: Date())
         let previous = lastDosingMode
         lastDosingMode = settings.dosingMode
 
