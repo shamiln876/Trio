@@ -86,15 +86,15 @@ jobs:
               // One reviewed run completed all five UI tests, then Xcode hung while
               // finalizing. This exception is bound to its exact source/run/job;
               // it does not allow other cancelled runs or any failed test.
-              if (process.env.LOOPFOLLOW_SOURCE_COMMIT === 'e5b062d8ca8a0433e71179d8b979d23b2ec82d9c' &&
-                  native?.id === 39188980999 && native.head_sha === process.env.LOOPFOLLOW_SOURCE_COMMIT &&
+              if (process.env.LOOPFOLLOW_SOURCE_COMMIT === '4b3239876f7ff160afd594026d12f3e1b2d5a251' &&
+                  native?.id === 39376256331 && native.head_sha === process.env.LOOPFOLLOW_SOURCE_COMMIT &&
                   native.status === 'completed' && native.conclusion === 'cancelled') {
                 const {data: jobs} = await github.rest.actions.listJobsForWorkflowRun({
                   owner: 'shamiln876', repo: 'LoopFollow', run_id: native.id
                 });
-                if (!jobs.jobs.some(job => job.id === 117857527276 && job.conclusion === 'cancelled'))
+                if (!jobs.jobs.some(job => job.id === 118474962045 && job.conclusion === 'cancelled'))
                   throw new Error('Reviewed native job identity changed');
-                const response = await fetch('https://api.github.com/repos/shamiln876/LoopFollow/actions/jobs/117857527276/logs', {
+                const response = await fetch('https://api.github.com/repos/shamiln876/LoopFollow/actions/jobs/118474962045/logs', {
                   headers: {Authorization: 'Bearer ' + process.env.GH_PAT, Accept: 'application/vnd.github+json'}
                 });
                 if (!response.ok) throw new Error('Cannot read reviewed native log: HTTP ' + response.status);
@@ -112,7 +112,7 @@ jobs:
                   throw new Error('Reviewed log does not prove all five tests passed without failures');
                 const fs = require('fs');
                 const path = require('path');
-                const receipt = {source: native.head_sha, runID: native.id, jobID: 117857527276,
+                const receipt = {source: native.head_sha, runID: native.id, jobID: 118474962045,
                   expectedTests: expected, passed: 5, failed: 0, runnerConclusion: native.conclusion,
                   limitation: 'Xcode was cancelled during post-test finalization; real-photo accuracy remains untested',
                   logSHA256: require('crypto').createHash('sha256').update(log).digest('hex')};
