@@ -1,5 +1,5 @@
 name: Native LoopFollow scanner release
-run-name: Native LoopFollow 24 · existing family signing
+run-name: LoopFollow forecast advisory · existing family signing
 on:
   workflow_dispatch:
   push:
@@ -20,7 +20,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 45
     env:
-      LOOPFOLLOW_SOURCE_COMMIT: e5b062d8ca8a0433e71179d8b979d23b2ec82d9c
+      LOOPFOLLOW_SOURCE_COMMIT: 4b3239876f7ff160afd594026d12f3e1b2d5a251
       LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
       TEAMID: ${{ secrets.TEAMID }}
       GH_PAT: ${{ secrets.GH_PAT }}
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: shamiln876/LoopFollow
-          ref: e5b062d8ca8a0433e71179d8b979d23b2ec82d9c
+          ref: 4b3239876f7ff160afd594026d12f3e1b2d5a251
           path: loopfollow
           persist-credentials: false
       - name: Verify the pinned LoopFollow source
