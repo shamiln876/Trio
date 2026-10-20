@@ -1,5 +1,5 @@
 name: Native LoopFollow scanner release
-run-name: LoopFollow forecast advisory · existing family signing
+run-name: LoopFollow forecast advisory 4b32398 · existing family signing
 on:
   workflow_dispatch:
   push:
