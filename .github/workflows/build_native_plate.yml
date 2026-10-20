@@ -1,5 +1,5 @@
 name: Native LoopFollow scanner release
-run-name: LoopFollow responsive remote feedback 3de5b8e · existing family signing
+run-name: LoopFollow responsive remote feedback 021d35f · existing family signing
 on:
   workflow_dispatch:
   push:
@@ -18,9 +18,9 @@ jobs:
         working-directory: loopfollow
     name: Build and upload reviewed native scanner
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 65
     env:
-      LOOPFOLLOW_SOURCE_COMMIT: 3de5b8e4388297c0ba0c5f9fcfbd390dd44f7d2a
+      LOOPFOLLOW_SOURCE_COMMIT: 021d35f3f607530d96643256214e9976f8b19df8
       LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
       TEAMID: ${{ secrets.TEAMID }}
       GH_PAT: ${{ secrets.GH_PAT }}
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: shamiln876/LoopFollow
-          ref: 3de5b8e4388297c0ba0c5f9fcfbd390dd44f7d2a
+          ref: 021d35f3f607530d96643256214e9976f8b19df8
           path: loopfollow
           persist-credentials: false
       - name: Verify the pinned LoopFollow source
@@ -74,7 +74,7 @@ jobs:
           script: |
             const required = ['.github/workflows/native_plate_scanner.yml',
               '.github/workflows/plate_scanner_tests.yml', '.github/workflows/lint.yml'];
-            for (let attempt = 0; attempt < 40; attempt++) {
+            for (let attempt = 0; attempt < 80; attempt++) {
               const {data} = await github.rest.actions.listWorkflowRunsForRepo({
                 owner: 'shamiln876', repo: 'LoopFollow',
                 head_sha: process.env.LOOPFOLLOW_SOURCE_COMMIT, event: 'pull_request', per_page: 50
