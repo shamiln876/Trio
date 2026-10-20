@@ -1,0 +1,149 @@
+name: Verified LoopFollow home CR release
+run-name: Publish only the reviewed LoopFollow CR layout
+on:
+  push:
+    branches: [build/loopfollow-home-cr]
+    paths: [.github/workflows/loopfollow_home_cr_release.yml]
+permissions:
+  contents: read
+concurrency:
+  group: verified-loopfollow-home-cr-release
+  cancel-in-progress: false
+env:
+  LOOPFOLLOW_SOURCE: 2530b59431ebf800f9e9841d689fbe4f126149a9
+  LOOPFOLLOW_BASE: 7d218e8624b7f842810ad5427eb3f1a905cb5cf3
+  CI: 'true'
+jobs:
+  verify-sign-publish:
+    runs-on: xcode-27
+    timeout-minutes: 70
+    steps:
+      - name: Checkout existing Trio signing utilities only
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Checkout exact reviewed LoopFollow UI source
+        uses: actions/checkout@v5
+        with:
+          repository: shamiln876/LoopFollow
+          ref: ${{ env.LOOPFOLLOW_SOURCE }}
+          path: loopfollow
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify no other app code was modified
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          base=os.environ['LOOPFOLLOW_BASE']
+          expected=os.environ['LOOPFOLLOW_SOURCE']
+          root=Path('loopfollow')
+          current=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          assert current == expected, 'LoopFollow release source mismatch'
+          names=set(subprocess.check_output(['git','-C',str(root),'diff','--name-only',base,'HEAD'],text=True).splitlines())
+          target='LoopFollow/InfoTable/InfoTableView.swift'
+          assert names == {target,'.github/workflows/publish_home_layout.yml'}, f'Unreviewed changes: {names}'
+          before=subprocess.check_output(['git','-C',str(root),'show',base+':'+target],text=True)
+          after=(root/target).read_text()
+          a='@ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 22'
+          b='@ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 20'
+          assert before.count(a)==1 and after==before.replace(a,b), 'Layout source changed unexpectedly'
+          print('Source verified: precisely 22-to-20 point visual adjustment')
+          PY
+      - name: Select the previously validated signing SDK
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_27.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Run retained Smart Meal and scanner regression checks
+        working-directory: loopfollow
+        run: |
+          bash Scripts/test-smart-meal-core.sh
+          bash Scripts/test-plate-scanner.sh
+      - name: Install approved existing build tools
+        working-directory: loopfollow
+        run: |
+          bundle install
+          table_path=$(bundle exec ruby -e 'puts Gem::Specification.find_by_name("fastlane").gem_dir')/match/lib/match/table_printer.rb
+          test -f "$table_path"
+          sed -i "" "/puts(Terminal::Table.new(params))/d" "$table_path"
+      - name: Sign with Trio repository's established family signing assets
+        working-directory: loopfollow
+        env:
+          LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_READONLY: 'true'
+          USE_EXISTING_TRIO_CERTIFICATE: 'true'
+          NATIVE_PLATE_SCANNER_REQUIRED: 'true'
+          MINIMUM_BUILD_NUMBER: '27'
+        run: bundle exec fastlane build_LoopFollow
+      - name: Verify exact signed archive identity and source before upload
+        working-directory: loopfollow
+        run: |
+          python3 Scripts/verify-native-plate-ipa.py LoopFollow.ipa
+          python3 Scripts/verify-smart-meal-distribution.py LoopFollow.ipa --source "$LOOPFOLLOW_SOURCE" --output home-cr-release-verification.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('native-plate-ipa-verification.json'))
+          assert int(d['CFBundleVersion']) >= 27, 'Requires newer build'
+          assert d['CFBundleIdentifier'] == 'com.D3GG62L9X8.LoopFollow'
+          print('Verified build',d['CFBundleVersion'])
+          PY
+          shasum -a 256 LoopFollow.ipa > LoopFollow.ipa.sha256
+      - name: Upload only the verified LoopFollow archive to internal TestFlight
+        env:
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/verified-home-cr-upload/fastlane"
+          cat > "$RUNNER_TEMP/verified-home-cr-upload/fastlane/Fastfile" <<'RUBY'
+          lane :publish do
+            key = app_store_connect_api_key(key_id: ENV.fetch('FASTLANE_KEY_ID'), issuer_id: ENV.fetch('FASTLANE_ISSUER_ID'), key_content: ENV.fetch('FASTLANE_KEY'))
+            upload_to_testflight(
+              api_key: key,
+              ipa: File.join(ENV.fetch('GITHUB_WORKSPACE'), 'loopfollow/LoopFollow.ipa'),
+              skip_submission: true,
+              distribute_external: false,
+              skip_waiting_for_build_processing: false,
+              changelog: 'Home-screen CR row visibility adjustment only; all dosing and remote controls unchanged.'
+            )
+          end
+          RUBY
+          cd "$RUNNER_TEMP/verified-home-cr-upload"
+          BUNDLE_GEMFILE="$GITHUB_WORKSPACE/loopfollow/Gemfile" bundle exec fastlane publish
+      - name: Confirm internal TestFlight distribution status for new build
+        env:
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: |
+          BUNDLE_GEMFILE="$GITHUB_WORKSPACE/loopfollow/Gemfile" bundle exec ruby scripts/testflight-read-status.rb com.D3GG62L9X8.LoopFollow loopfollow/apple-home-cr-status.json
+          python3 - <<'PY'
+          import json
+          info=json.load(open('loopfollow/native-plate-ipa-verification.json'))
+          expected=info['CFBundleVersion']
+          data=json.load(open('loopfollow/apple-home-cr-status.json'))
+          matches=[b for b in data['builds'] if b['build']==expected]
+          assert matches, 'New build missing from Apple listing'
+          b=matches[0]
+          assert b['processingState']=='VALID', f'Apple processing incomplete: {b}'
+          assert (b['beta'] or {}).get('internalBuildState') == 'IN_BETA_TESTING', f'Not internal beta testing: {b}'
+          print('Apple confirmed internal TestFlight build',expected)
+          PY
+      - name: Save non-binary verification receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loopfollow-home-cr-release-receipts
+          path: |
+            loopfollow/native-plate-ipa-verification.json
+            loopfollow/home-cr-release-verification.json
+            loopfollow/LoopFollow.ipa.sha256
+            loopfollow/apple-home-cr-status.json
