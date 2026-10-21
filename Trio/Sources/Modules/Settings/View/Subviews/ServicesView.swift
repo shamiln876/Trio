@@ -22,6 +22,7 @@ struct ServicesView: BaseView {
             Section(
                 header: Text("Connected Services"),
                 content: {
+                    NavigationLink("Nearby Bluetooth") { NearbySharingView(link: NearbySender.shared) }
                     Text("Nightscout").navigationLink(to: .nighscoutConfig, from: self)
                     Text("Tidepool").navigationLink(to: .tidepoolConfig, from: self)
                     if HKHealthStore.isHealthDataAvailable() {

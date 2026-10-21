@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BEA012000000000000000003 /* NearbySender.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA011000000000000000003; };
+		BEA012000000000000000002 /* NearbySharingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA011000000000000000002; };
+		BEA012000000000000000001 /* NearbyBluetooth.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA011000000000000000001; };
+		BEA012000000000000000000 /* NearbyPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA011000000000000000000; };
 		AE1E037270EE923532C7EA27 /* SmartMealCarbBatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC021919AF98E8EF250BC1FB /* SmartMealCarbBatchTests.swift */; };
 		26CA515B0ED116C7A9AE0D59 /* SmartMealCarbBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B35511865112ECAEA1CC690 /* SmartMealCarbBatch.swift */; };
 		C0965DE368C72C94A99301BF /* SmartMealReceiverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 436D38D211C533E4D2D8EEFC /* SmartMealReceiverTests.swift */; };
@@ -1113,6 +1117,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		BEA011000000000000000003 /* NearbySender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Trio/Sources/Services/NearbySharing/NearbySender.swift"; sourceTree = SOURCE_ROOT; };
+		BEA011000000000000000002 /* NearbySharingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Trio/Sources/Services/NearbySharing/NearbySharingView.swift"; sourceTree = SOURCE_ROOT; };
+		BEA011000000000000000001 /* NearbyBluetooth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Trio/Sources/Services/NearbySharing/NearbyBluetooth.swift"; sourceTree = SOURCE_ROOT; };
+		BEA011000000000000000000 /* NearbyPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Trio/Sources/Services/NearbySharing/NearbyPacket.swift"; sourceTree = SOURCE_ROOT; };
 		BC021919AF98E8EF250BC1FB /* SmartMealCarbBatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartMealCarbBatchTests.swift; sourceTree = "<group>"; };
 		1B35511865112ECAEA1CC690 /* SmartMealCarbBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartMealCarbBatch.swift; sourceTree = "<group>"; };
 		436D38D211C533E4D2D8EEFC /* SmartMealReceiverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartMealReceiverTests.swift; sourceTree = "<group>"; };
@@ -3169,6 +3177,10 @@
 			isa = PBXGroup;
 			children = (
 				BDA25EE32D260CCF00035F34 /* AppleWatchManager.swift */,
+				BEA011000000000000000003 /* NearbySender.swift */,
+				BEA011000000000000000002 /* NearbySharingView.swift */,
+				BEA011000000000000000001 /* NearbyBluetooth.swift */,
+				BEA011000000000000000000 /* NearbyPacket.swift */,
 				CE94597D29E9E1EE0047C9C6 /* GarminManager.swift */,
 			);
 			path = WatchManager;
@@ -5962,6 +5974,10 @@
 				BD4ED4FD2CF9D5E8000EDC9C /* AppState.swift in Sources */,
 				DDF847DD2C5C28720049BB3B /* LiveActivitySettingsDataFlow.swift in Sources */,
 				BDA25EE42D260CD500035F34 /* AppleWatchManager.swift in Sources */,
+				BEA012000000000000000003 /* NearbySender.swift in Sources */,
+				BEA012000000000000000002 /* NearbySharingView.swift in Sources */,
+				BEA012000000000000000001 /* NearbyBluetooth.swift in Sources */,
+				BEA012000000000000000000 /* NearbyPacket.swift in Sources */,
 				BD175EBE0000100000000001 /* HistoryDataFlow+Models.swift in Sources */,
 				BD175EBE0000100000000002 /* HistoryDeletionTarget.swift in Sources */,
 				BD175EBE0000100000000003 /* HistoryStateModel+Glucose.swift in Sources */,
