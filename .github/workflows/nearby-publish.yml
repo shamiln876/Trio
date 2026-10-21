@@ -1,0 +1,105 @@
+name: Publish verified nearby Bluetooth previews
+on:
+  push:
+    branches: [release/nearby-bluetooth-preview]
+    paths: [.github/workflows/nearby-publish.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nearby-preview-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: macos-26
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [Trio, LoopFollow]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 9bb2af15a7203935bbf87e11e4b403450c53f703
+          persist-credentials: false
+      - name: Require successful exact candidate run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 150); do
+            gh api repos/shamiln876/Trio/actions/runs/39558922205 > "$RUNNER_TEMP/run.json"
+            state=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/run.json"))["status"])')
+            if [ "$state" = completed ]; then break; fi
+            sleep 20
+          done
+          gh api repos/shamiln876/Trio/actions/runs/39558922205/jobs > "$RUNNER_TEMP/jobs.json"
+          python3 - <<'PY'
+          import json,os
+          p=os.environ['RUNNER_TEMP']
+          r=json.load(open(p+'/run.json')); j=json.load(open(p+'/jobs.json'))['jobs']
+          assert r['head_sha']=='9bb2af15a7203935bbf87e11e4b403450c53f703'
+          assert r['status']=='completed' and r['conclusion']=='success'
+          assert len(j)==2
+          assert all(x['name'].startswith('candidates (') for x in j)
+          assert all(x['conclusion']=='success' for x in j)
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: nearby-${{ matrix.app }}-candidate
+          path: candidate
+          run-id: 39558922205
+          github-token: ${{ github.token }}
+      - uses: actions/checkout@v5
+        if: matrix.app == 'LoopFollow'
+        with:
+          repository: shamiln876/LoopFollow
+          ref: a999207970b570ec7387ab8cf0c2db484c52a117
+          path: loopfollow
+          persist-credentials: false
+      - name: Verify candidate bytes, signature and exact source again
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          if [ "$APP" = Trio ]; then
+            (cd candidate && shasum -a 256 -c Trio.ipa.sha256)
+            python3 scripts/verify-smart-meal-distribution.py candidate/Trio.ipa --source ea2f0a6fa9174160215fdcd89972c61dd87e7c3a --output candidate/verified.json
+          else
+            (cd candidate && shasum -a 256 -c LoopFollow.ipa.sha256)
+            python3 loopfollow/Scripts/verify-smart-meal-distribution.py candidate/LoopFollow.ipa --source a999207970b570ec7387ab8cf0c2db484c52a117 --output candidate/verified.json
+          fi
+      - name: Install upload tools
+        run: bundle install
+      - name: Upload existing signed package to internal TestFlight
+        env:
+          APP: ${{ matrix.app }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/nearby-upload/fastlane"
+          cat > "$RUNNER_TEMP/nearby-upload/fastlane/Fastfile" <<'RUBY'
+          lane :publish do
+            key = app_store_connect_api_key(key_id: ENV.fetch('FASTLANE_KEY_ID'), issuer_id: ENV.fetch('FASTLANE_ISSUER_ID'), key_content: ENV.fetch('FASTLANE_KEY'))
+            app = ENV.fetch('APP')
+            ipa = File.join(ENV.fetch('GITHUB_WORKSPACE'), 'candidate', app == 'Trio' ? 'Trio.ipa' : 'LoopFollow.ipa')
+            upload_to_testflight(api_key: key, ipa: ipa, skip_submission: true, distribute_external: false, skip_waiting_for_build_processing: false, changelog: 'Opt-in Nearby Bluetooth preview: private QR pairing and read-only glucose, delta, IOB and COB without internet. View values on the Nearby Bluetooth screen. Physical offline/background delivery requires testing on both phones. Home, Live Activity, alarms and remote controls retain their existing internet data sources.')
+          end
+          RUBY
+          cd "$RUNNER_TEMP/nearby-upload"
+          BUNDLE_GEMFILE="$GITHUB_WORKSPACE/Gemfile" bundle exec fastlane publish
+      - name: Confirm Apple processing and existing internal availability
+        env:
+          APP: ${{ matrix.app }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: |
+          if [ "$APP" = Trio ]; then bundle=org.nightscout.D3GG62L9X8.trio; else bundle=com.D3GG62L9X8.LoopFollow; fi
+          bundle exec ruby scripts/testflight-read-status.rb "$bundle" candidate/apple-status.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nearby-${{ matrix.app }}-publication
+          path: |
+            candidate/verified.json
+            candidate/apple-status.json
