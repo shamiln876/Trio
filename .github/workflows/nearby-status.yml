@@ -1,0 +1,27 @@
+name: Read nearby Trio TestFlight status
+on:
+  push:
+    branches: [release/nearby-bluetooth-preview]
+    paths: [.github/workflows/nearby-status.yml]
+permissions:
+  contents: read
+jobs:
+  status:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 9bb2af15a7203935bbf87e11e4b403450c53f703
+          persist-credentials: false
+      - run: bundle install
+      - name: Read Apple build processing status
+        env:
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: bundle exec ruby scripts/testflight-read-status.rb org.nightscout.D3GG62L9X8.trio nearby-apple-status.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nearby-trio-status
+          path: nearby-apple-status.json
