@@ -8,7 +8,7 @@ permissions:
   actions: read
 concurrency:
   group: nearby-preview-publication
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   publish:
     runs-on: macos-26
@@ -22,13 +22,15 @@ jobs:
         with:
           ref: 9bb2af15a7203935bbf87e11e4b403450c53f703
           persist-credentials: false
-      - name: Require successful exact candidate run
+      - name: Require this exact verified candidate
         env:
           GH_TOKEN: ${{ github.token }}
+          APP: ${{ matrix.app }}
         run: |
           for attempt in $(seq 1 150); do
             gh api repos/shamiln876/Trio/actions/runs/39558922205 > "$RUNNER_TEMP/run.json"
-            state=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/run.json"))["status"])')
+            gh api repos/shamiln876/Trio/actions/runs/39558922205/jobs > "$RUNNER_TEMP/jobs.json"
+            state=$(python3 -c 'import json,os; j=json.load(open(os.environ["RUNNER_TEMP"]+"/jobs.json"))["jobs"]; matches=[x for x in j if x["name"].startswith("candidates ("+os.environ["APP"]+",")]; print(matches[0]["status"] if len(matches)==1 else "waiting")')
             if [ "$state" = completed ]; then break; fi
             sleep 20
           done
@@ -38,10 +40,13 @@ jobs:
           p=os.environ['RUNNER_TEMP']
           r=json.load(open(p+'/run.json')); j=json.load(open(p+'/jobs.json'))['jobs']
           assert r['head_sha']=='9bb2af15a7203935bbf87e11e4b403450c53f703'
-          assert r['status']=='completed' and r['conclusion']=='success'
-          assert len(j)==2
-          assert all(x['name'].startswith('candidates (') for x in j)
-          assert all(x['conclusion']=='success' for x in j)
+          expected={'Trio':'ea2f0a6fa9174160215fdcd89972c61dd87e7c3a', 'LoopFollow':'a999207970b570ec7387ab8cf0c2db484c52a117'}
+          app=os.environ['APP']
+          matches=[x for x in j if x['name'].startswith('candidates ('+app+', '+expected[app]+',')]
+          assert len(matches)==1
+          assert matches[0]['status']=='completed' and matches[0]['conclusion']=='success'
+          # This job includes the exact-source test gate and signed-identity verification.
+          # The downloaded IPA is also verified below before any upload.
           PY
       - uses: actions/download-artifact@v4
         with:
