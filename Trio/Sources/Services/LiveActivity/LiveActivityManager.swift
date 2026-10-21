@@ -95,10 +95,33 @@ final class LiveActivityData: ObservableObject {
         data.objectWillChange.sink { [weak self] in
             Task { @MainActor in
                 // by the time this runs, the object change is done, so we see the new data here
+                self?.publishNearbyValues()
                 await self?.pushCurrentContent()
             }
         }.store(in: &subscriptions)
+        NearbySender.shared.$enabled.dropFirst().sink { [weak self] enabled in
+            if enabled { self?.loadInitialData() }
+        }.store(in: &subscriptions)
         loadInitialData()
+    }
+
+    @MainActor private func publishNearbyValues() {
+        guard NearbySender.shared.enabled,
+              let readings = data.glucoseFromPersistence?.sorted(by: { $0.date > $1.date }),
+              let glucose = readings.first else { return }
+        let previous = readings.dropFirst().first
+        let delta = previous.flatMap { glucose.date.timeIntervalSince($0.date) <= 600 ? glucose.glucose - $0.glucose : nil }
+        let iobEntry = storage.retrieve(OpenAPS.Monitor.iob, as: [IOBEntry].self)?.first
+        let iob = iobEntry?.time == nil ? nil : iobEntry.map { NSDecimalNumber(decimal: $0.iob).doubleValue }
+        let determination = data.determination
+        let cob = determination?.date == nil ? nil : determination.map { Double($0.cob) }
+        NearbySender.shared.publish(NearbyPacket(
+            generatedAt: Date().timeIntervalSince1970,
+            glucoseDate: glucose.date.timeIntervalSince1970,
+            glucoseMgdl: glucose.glucose, deltaMgdl: delta,
+            iob: iob, iobDate: iob == nil ? nil : iobEntry?.time?.timeIntervalSince1970,
+            cob: cob, cobDate: cob == nil ? nil : determination?.date?.timeIntervalSince1970
+        ))
     }
 
     /// Sets up application notifications that trigger live activity updates when the app state changes.

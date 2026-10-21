@@ -21,8 +21,9 @@ extension LiveActivityManager {
                 throw CoreDataError.fetchError(function: #function, file: #file)
             }
 
-            return glucoseResults.map {
-                GlucoseData(glucose: Int($0.glucose), date: $0.date ?? Date(), direction: $0.directionEnum)
+            return glucoseResults.compactMap { row in
+                guard let date = row.date else { return nil }
+                return GlucoseData(glucose: Int(row.glucose), date: date, direction: row.directionEnum)
             }
         }
     }
