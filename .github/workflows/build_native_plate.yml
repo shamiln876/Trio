@@ -1,5 +1,5 @@
 name: Native LoopFollow scanner release
-run-name: LoopFollow responsive remote feedback 021d35f · existing family signing
+run-name: LoopFollow Live Activity foreground repair · existing family signing
 on:
   workflow_dispatch:
   push:
@@ -20,7 +20,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 65
     env:
-      LOOPFOLLOW_SOURCE_COMMIT: 021d35f3f607530d96643256214e9976f8b19df8
+      LOOPFOLLOW_SOURCE_COMMIT: d28b60e7c90f8424da838be4e820d9b433081ee5
       LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
       TEAMID: ${{ secrets.TEAMID }}
       GH_PAT: ${{ secrets.GH_PAT }}
@@ -33,7 +33,7 @@ jobs:
       USE_EXISTING_TRIO_CERTIFICATE: 'true'
       MATCH_READONLY: 'true'
       NATIVE_PLATE_SCANNER_REQUIRED: 'true'
-      MINIMUM_BUILD_NUMBER: '24'
+      MINIMUM_BUILD_NUMBER: '29'
       WAIT_FOR_PROCESSING: 'true'
     steps:
       - name: Check out status helper only; do not build Trio
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: shamiln876/LoopFollow
-          ref: 021d35f3f607530d96643256214e9976f8b19df8
+          ref: d28b60e7c90f8424da838be4e820d9b433081ee5
           path: loopfollow
           persist-credentials: false
       - name: Verify the pinned LoopFollow source
