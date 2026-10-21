@@ -1,0 +1,129 @@
+name: Bluetooth Live Activity build and TestFlight
+on:
+  push:
+    branches: [release/nearby-bluetooth-preview]
+    paths: [.github/workflows/nearby-live-activity.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nearby-live-activity-release
+  cancel-in-progress: true
+env:
+  CI: 'true'
+jobs:
+  candidates:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: LoopFollow
+            sha: 670e4af8e988d0bbe83bc37889fd756a4fb1f9b4
+            run: 39587387462
+            runner: xcode-27
+            xcode: Xcode_27.app
+            lane: build_LoopFollow
+            verifier: Scripts/verify-smart-meal-distribution.py
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 70
+    steps:
+      - name: Require passing exact-source protocol and simulator build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP: ${{ matrix.app }}
+          SOURCE: ${{ matrix.sha }}
+          RUN: ${{ matrix.run }}
+        run: |
+          for attempt in $(seq 1 90); do
+            gh api "repos/shamiln876/$APP/actions/runs/$RUN" > "$RUNNER_TEMP/nearby-gate.json"
+            state=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/nearby-gate.json"))["status"])')
+            if [ "$state" = completed ]; then break; fi
+            sleep 20
+          done
+          python3 - <<'GATE'
+          import json, os
+          r=json.load(open(os.environ['RUNNER_TEMP']+'/nearby-gate.json'))
+          assert r['head_sha'] == os.environ['SOURCE']
+          assert r['path'] == '.github/workflows/nearby-bluetooth.yml'
+          assert r['status'] == 'completed' and r['conclusion'] == 'success'
+          GATE
+          if [ "$APP" = LoopFollow ]; then
+            gh api repos/shamiln876/LoopFollow/actions/runs/39587392646 > "$RUNNER_TEMP/lint-gate.json"
+            python3 - <<'LINT'
+          import json,os
+          r=json.load(open(os.environ['RUNNER_TEMP']+'/lint-gate.json'))
+          assert r['head_sha'] == os.environ['SOURCE']
+          assert r['conclusion'] == 'success'
+          LINT
+          fi
+      - uses: actions/checkout@v5
+        with:
+          repository: shamiln876/${{ matrix.app }}
+          ref: ${{ matrix.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Select Xcode and install existing build tools
+        env:
+          XCODE: ${{ matrix.xcode }}
+        run: |
+          sudo xcode-select -s "/Applications/$XCODE/Contents/Developer"
+          bundle install
+          table_path=$(bundle exec ruby -e 'puts Gem::Specification.find_by_name("fastlane").gem_dir')/match/lib/match/table_printer.rb
+          test -f "$table_path"
+          sed -i "" "/puts(Terminal::Table.new(params))/d" "$table_path"
+      - name: Build with existing family identity and read-only signing assets
+        run: bundle exec fastlane "${{ matrix.lane }}"
+        env:
+          TEAMID: ${{ secrets.TEAMID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_READONLY: 'true'
+          USE_EXISTING_TRIO_CERTIFICATE: 'true'
+          NATIVE_PLATE_SCANNER_REQUIRED: 'true'
+          MINIMUM_BUILD_NUMBER: '31'
+      - name: Verify signed app identity and exact source
+        env:
+          APP: ${{ matrix.app }}
+          SOURCE: ${{ matrix.sha }}
+          VERIFIER: ${{ matrix.verifier }}
+        run: |
+          python3 "$VERIFIER" "$APP.ipa" --source "$SOURCE" --output nearby-candidate.json
+          shasum -a 256 "$APP.ipa" > "$APP.ipa.sha256"
+          if [ "$APP" = LoopFollow ]; then python3 Scripts/verify-native-plate-ipa.py LoopFollow.ipa; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nearby-${{ matrix.app }}-candidate
+          path: |
+            ${{ matrix.app }}.ipa
+            ${{ matrix.app }}.ipa.sha256
+            nearby-candidate.json
+      - name: Upload verified LoopFollow package to existing internal TestFlight
+        env:
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/nearby-upload/fastlane"
+          cat > "$RUNNER_TEMP/nearby-upload/fastlane/Fastfile" <<'RUBY'
+          lane :publish do
+            key = app_store_connect_api_key(key_id: ENV.fetch('FASTLANE_KEY_ID'), issuer_id: ENV.fetch('FASTLANE_ISSUER_ID'), key_content: ENV.fetch('FASTLANE_KEY'))
+            upload_to_testflight(api_key: key, ipa: File.join(ENV.fetch('GITHUB_WORKSPACE'), 'LoopFollow.ipa'), skip_submission: true, distribute_external: false, skip_waiting_for_build_processing: false, changelog: 'Live Activity now selects the newest Bluetooth or internet glucose reading. Nearby packets update ActivityKit directly without internet. Bluetooth source and stale data are marked; unavailable cloud therapy fields are omitted. Physical locked-phone delivery still requires verification. Trio build 12 remains compatible.')
+          end
+          RUBY
+          cd "$RUNNER_TEMP/nearby-upload"
+          BUNDLE_GEMFILE="$GITHUB_WORKSPACE/Gemfile" bundle exec fastlane publish
+      - uses: actions/checkout@v5
+        with:
+          repository: shamiln876/Trio
+          ref: 8653e5d70e2c72f35f55043e456de21b492fb06c
+          path: release-status
+          persist-credentials: false
+      - name: Confirm Apple availability
+        env:
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: bundle exec ruby release-status/scripts/testflight-read-status.rb com.D3GG62L9X8.LoopFollow apple-status.json
