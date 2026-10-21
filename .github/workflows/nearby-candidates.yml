@@ -1,14 +1,14 @@
 name: Nearby Bluetooth signed preview candidates
 on:
   push:
-    branches: [feature/nearby-bluetooth-readonly]
+    branches: [release/nearby-bluetooth-preview]
     paths: [.github/workflows/nearby-candidates.yml]
 permissions:
   contents: read
   actions: read
 concurrency:
   group: nearby-preview-candidates
-  cancel-in-progress: false
+  cancel-in-progress: true
 env:
   CI: 'true'
 jobs:
@@ -25,8 +25,8 @@ jobs:
             lane: build_trio
             verifier: scripts/verify-smart-meal-distribution.py
           - app: LoopFollow
-            sha: e6fb381ba0a9e4f0774623df2f846a2a3d5e0216
-            run: 39557820147
+            sha: a999207970b570ec7387ab8cf0c2db484c52a117
+            run: 39558517899
             runner: xcode-27
             xcode: Xcode_27.app
             lane: build_LoopFollow
@@ -54,6 +54,15 @@ jobs:
           assert r['path'] == '.github/workflows/nearby-bluetooth.yml'
           assert r['status'] == 'completed' and r['conclusion'] == 'success'
           GATE
+          if [ "$APP" = LoopFollow ]; then
+            gh api repos/shamiln876/LoopFollow/actions/runs/39558525094 > "$RUNNER_TEMP/lint-gate.json"
+            python3 - <<'LINT'
+          import json,os
+          r=json.load(open(os.environ['RUNNER_TEMP']+'/lint-gate.json'))
+          assert r['head_sha'] == os.environ['SOURCE']
+          assert r['conclusion'] == 'success'
+          LINT
+          fi
       - uses: actions/checkout@v5
         with:
           repository: shamiln876/${{ matrix.app }}
