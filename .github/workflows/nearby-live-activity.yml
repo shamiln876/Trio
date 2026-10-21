@@ -18,8 +18,8 @@ jobs:
       matrix:
         include:
           - app: LoopFollow
-            sha: fa87f54be590414f2fa2b88a717d510e5e52958f
-            run: 39587591107
+            sha: e457d29ab34b7aa5fc4da6cfe8a0ecd2af17943a
+            run: 39587781817
             runner: xcode-27
             xcode: Xcode_27.app
             lane: build_LoopFollow
@@ -48,7 +48,7 @@ jobs:
           assert r['status'] == 'completed' and r['conclusion'] == 'success'
           GATE
           if [ "$APP" = LoopFollow ]; then
-            gh api repos/shamiln876/LoopFollow/actions/runs/39587597111 > "$RUNNER_TEMP/lint-gate.json"
+            gh api repos/shamiln876/LoopFollow/actions/runs/39587789518 > "$RUNNER_TEMP/lint-gate.json"
             python3 - <<'LINT'
           import json,os
           r=json.load(open(os.environ['RUNNER_TEMP']+'/lint-gate.json'))
