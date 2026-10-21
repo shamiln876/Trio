@@ -20,7 +20,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 65
     env:
-      LOOPFOLLOW_SOURCE_COMMIT: d28b60e7c90f8424da838be4e820d9b433081ee5
+      LOOPFOLLOW_SOURCE_COMMIT: df390461512407911f52486d8237a7063ec34618
       LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
       TEAMID: ${{ secrets.TEAMID }}
       GH_PAT: ${{ secrets.GH_PAT }}
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: shamiln876/LoopFollow
-          ref: d28b60e7c90f8424da838be4e820d9b433081ee5
+          ref: df390461512407911f52486d8237a7063ec34618
           path: loopfollow
           persist-credentials: false
       - name: Verify the pinned LoopFollow source
