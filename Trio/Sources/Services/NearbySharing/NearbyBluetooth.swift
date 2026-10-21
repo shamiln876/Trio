@@ -138,6 +138,7 @@ final class NearbyBluetooth: NSObject, ObservableObject, CBCentralManagerDelegat
     private func advertise() {
         guard enabled, let pairing, let manager = peripheralManager, manager.state == .poweredOn else { return }
         if characteristic == nil {
+            manager.removeAllServices()
             let value = CBMutableCharacteristic(type: characteristicID, properties: [.read, .notify], value: nil, permissions: [.readable])
             characteristic = value
             let service = CBMutableService(type: CBUUID(nsuuid: pairing.service), primary: true)
@@ -166,7 +167,10 @@ final class NearbyBluetooth: NSObject, ObservableObject, CBCentralManagerDelegat
             peripheral.respond(to: request, withResult: .unlikelyError); return
         }
         // Freeze the entire encrypted frame for the duration of an ATT long read.
-        if request.offset == 0 { readSnapshots[request.central.identifier] = encrypted }
+        if request.offset == 0 {
+            if readSnapshots.count >= 16 { readSnapshots.removeAll() }
+            readSnapshots[request.central.identifier] = encrypted
+        }
         guard let bytes = readSnapshots[request.central.identifier], request.offset <= bytes.count else {
             peripheral.respond(to: request, withResult: .invalidOffset); return
         }
@@ -211,7 +215,11 @@ final class NearbyBluetooth: NSObject, ObservableObject, CBCentralManagerDelegat
 
     private func scan() {
         guard enabled, let pairing, let central, central.state == .poweredOn else { return }
-        if let peer, peer.state == .connected { discover(peer); return }
+        if let peer {
+            if peer.state == .connected { discover(peer) }
+            else { central.connect(peer, options: nil) }
+            return
+        }
         status = "Searching for paired Trio phone"
         central.scanForPeripherals(withServices: [CBUUID(nsuuid: pairing.service)], options: nil)
     }
@@ -225,7 +233,10 @@ final class NearbyBluetooth: NSObject, ObservableObject, CBCentralManagerDelegat
         central.connect(peripheral, options: nil)
     }
 
-    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) { discover(peripheral) }
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard enabled, peer?.identifier == peripheral.identifier else { central.cancelPeripheralConnection(peripheral); return }
+        discover(peripheral)
+    }
 
     private func discover(_ peripheral: CBPeripheral) {
         guard enabled, let pairing else { return }
@@ -236,11 +247,13 @@ final class NearbyBluetooth: NSObject, ObservableObject, CBCentralManagerDelegat
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard peer?.identifier == peripheral.identifier else { return }
         peer = nil; remoteCharacteristic = nil; readInFlight = false
         if enabled { scan() }
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard peer?.identifier == peripheral.identifier else { return }
         remoteCharacteristic = nil; readInFlight = false; readAgain = false
         guard enabled else { return }
         // A pending Core Bluetooth connect survives suspension; no polling timer needed.
@@ -285,7 +298,7 @@ final class NearbyBluetooth: NSObject, ObservableObject, CBCentralManagerDelegat
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard enabled, characteristic.uuid == characteristicID else { return }
+        guard enabled, peer?.identifier == peripheral.identifier, characteristic.uuid == characteristicID else { return }
         if error == nil, characteristic.value == Data([1]) { read(); return }
         readInFlight = false
         defer { if readAgain { readAgain = false; read() } }
