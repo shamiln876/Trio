@@ -2,6 +2,9 @@ name: LoopFollow Meal and Photo TestFlight
 run-name: LoopFollow Meal and Photo Advisor · manual TestFlight release
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/manual_loopfollow_meal_photo_testflight.yml]
 permissions:
   contents: read
   actions: read
@@ -10,6 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Trigger verified LoopFollow Meal and Photo TestFlight release'
     defaults:
       run:
         working-directory: loopfollow
