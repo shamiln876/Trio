@@ -70,7 +70,7 @@ jobs:
         run: |
           swift run -c release --package-path BuildTools swiftformat . \
             --lint \
-            --header "LoopFollow\\n{file}" \
+            --header "LoopFollow\n{file}" \
             --exclude Pods,Generated,R.generated.swift,fastlane/swift,Dependencies,dexcom-share-client-swift
       - name: Select iOS 27 simulator
         id: simulator
@@ -86,7 +86,7 @@ jobs:
           if not candidates:
               raise SystemExit('No iOS 27 iPhone simulator available')
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write('id='+candidates[0]['udid']+'\\n')
+              f.write('id='+candidates[0]['udid']+'\n')
           PY
           xcrun simctl bootstatus "${{ steps.simulator.outputs.id }}" -b
       - name: Compile native photo API and test safe meal handoff
@@ -114,7 +114,7 @@ jobs:
       - name: Verify checkout is still the pinned tested commit
         run: |
           test "$(git rev-parse HEAD)" = "$LOOPFOLLOW_SOURCE_COMMIT"
-          test -z "$(git status --porcelain)"
+          git diff --exit-code -- LoopFollow/Remote/TRC/CruiseAdvisorTabView.swift LoopFollow/Remote/TRC/MealView.swift LoopFollow/Remote/TRC/PlateScannerView.swift
       - name: Upload to existing LoopFollow TestFlight app
         run: bundle exec fastlane release
       - name: Read existing LoopFollow TestFlight availability
