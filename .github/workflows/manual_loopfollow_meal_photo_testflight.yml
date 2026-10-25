@@ -21,7 +21,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 65
     env:
-      LOOPFOLLOW_SOURCE_COMMIT: 954a46836415c1a1502b105dcde04816a951b4
+      LOOPFOLLOW_SOURCE_COMMIT: 954a46836415c1a1502b105dcde04816a951b4b4
       LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
       TEAMID: ${{ secrets.TEAMID }}
       GH_PAT: ${{ secrets.GH_PAT }}
