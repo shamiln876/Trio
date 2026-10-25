@@ -90,6 +90,10 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write('id='+candidates[0]['udid']+'\n')
           PY
+      - name: Boot selected iOS 27 simulator
+        run: |
+          test -n "${{ steps.simulator.outputs.id }}"
+          xcrun simctl boot "${{ steps.simulator.outputs.id }}" || true
           xcrun simctl bootstatus "${{ steps.simulator.outputs.id }}" -b
       - name: Compile native photo API and test safe meal handoff
         env:
