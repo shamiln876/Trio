@@ -1,0 +1,136 @@
+name: Native LoopFollow scanner release
+run-name: LoopFollow Meal + Photo Advisor · verified TestFlight
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/native-plate-distribution]
+    paths: [.github/workflows/build_native_plate.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: native-plate-testflight
+  cancel-in-progress: false
+jobs:
+  build:
+    defaults:
+      run:
+        working-directory: loopfollow
+    name: Build and upload reviewed native scanner
+    runs-on: xcode-27
+    timeout-minutes: 65
+    env:
+      LOOPFOLLOW_SOURCE_COMMIT: 954a46836415c1a1502b105dcde04816a951b4
+      LOOPFOLLOW_WORKSPACE: ${{ github.workspace }}/loopfollow
+      TEAMID: ${{ secrets.TEAMID }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+      FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+      FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      # The existing lane imports the valid family certificate read-only. It can
+      # provision profiles for LoopFollow, but cannot revoke/create certificates.
+      USE_EXISTING_TRIO_CERTIFICATE: 'true'
+      MATCH_READONLY: 'true'
+      NATIVE_PLATE_SCANNER_REQUIRED: 'true'
+      MINIMUM_BUILD_NUMBER: '30'
+      WAIT_FOR_PROCESSING: 'true'
+    steps:
+      - name: Check out status helper only; do not build Trio
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Check out the pinned reviewed LoopFollow source
+        uses: actions/checkout@v5
+        with:
+          repository: shamiln876/LoopFollow
+          ref: 954a46836415c1a1502b105dcde04816a951b4
+          path: loopfollow
+          persist-credentials: false
+      - name: Verify the pinned LoopFollow source
+        run: test "$(git rev-parse HEAD)" = "$LOOPFOLLOW_SOURCE_COMMIT"
+      - name: Select released Xcode 27 SDK
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_27.app/Contents/Developer
+          xcodebuild -version
+          sdk_version=$(xcrun --sdk iphoneos --show-sdk-version)
+          [[ "$sdk_version" == 27.* ]] || { echo "iOS 27 SDK is required"; exit 1; }
+      - name: Install project dependencies
+        run: bundle install
+      - name: Suppress Match profile tables
+        run: |
+          table_path=$(bundle exec ruby -e 'puts Gem::Specification.find_by_name("fastlane").gem_dir')/match/lib/match/table_printer.rb
+          test -f "$table_path"
+          sed -i "" "/puts(Terminal::Table.new(params))/d" "$table_path"
+      - name: Verify scanner and meal calculations against the pinned source
+        run: |
+          bash Scripts/test-plate-scanner.sh
+          bash Scripts/test-smart-meal-core.sh
+      - name: Check Swift formatting before distribution
+        run: |
+          swift run -c release --package-path BuildTools swiftformat . \
+            --lint \
+            --header "LoopFollow\n{file}" \
+            --exclude Pods,Generated,R.generated.swift,fastlane/swift,Dependencies,dexcom-share-client-swift
+      - name: Select iOS 27 simulator
+        id: simulator
+        run: |
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/meal-simulators.json"
+          python3 - <<'PY'
+          import json, os
+          with open(os.environ['RUNNER_TEMP']+'/meal-simulators.json') as f:
+              devices=json.load(f)['devices']
+          candidates=[d for runtime, items in devices.items()
+                      if '.iOS-27-' in runtime for d in items
+                      if d.get('isAvailable') and d['name'].startswith('iPhone')]
+          if not candidates:
+              raise SystemExit('No iOS 27 iPhone simulator available')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('id='+candidates[0]['udid']+'\n')
+          PY
+          xcrun simctl bootstatus "${{ steps.simulator.outputs.id }}" -b
+      - name: Compile native photo API and test safe meal handoff
+        env:
+          PLATE_SCANNER_CI_SKIP_FORMAT: '1'
+        run: |
+          set -o pipefail
+          xcodebuild -workspace LoopFollow.xcworkspace -scheme SmartMealUI \
+            -parallel-testing-enabled NO -configuration Debug \
+            -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}' \
+            -derivedDataPath "$RUNNER_TEMP/meal-native-build" \
+            -resultBundlePath "$RUNNER_TEMP/meal-native.xcresult" \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testOptionalScannerRequiresReviewAndUnknownResolution \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testDirectPhotoCancellationKeepsAdvisorCarbs \
+            -only-testing:SmartMealUITests/CarnivalManualUITests/testManualHalfBagelStillFillsAdvisorAfterCancellingScanner \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testLowForecastRequiresAcceptAndPreservesEditedDose \
+            -only-testing:SmartMealUITests/SmartMealHandoffUITests/testManualMealRemainsAvailableDuringVeryLowForecast \
+            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG PLATE_SCAN_REQUIRE_NATIVE' \
+            CODE_SIGNING_ALLOWED=NO test | tee "$RUNNER_TEMP/meal-native-build.log"
+      - name: Build using the existing certificate
+        run: bundle exec fastlane build_LoopFollow
+      - name: Verify native SDK and family app identity
+        run: |
+          python3 Scripts/verify-native-plate-ipa.py LoopFollow.ipa
+      - name: Verify checkout is still the pinned tested commit
+        run: |
+          test "$(git rev-parse HEAD)" = "$LOOPFOLLOW_SOURCE_COMMIT"
+          git diff --exit-code -- LoopFollow/Remote/TRC/CruiseAdvisorTabView.swift LoopFollow/Remote/TRC/MealView.swift LoopFollow/Remote/TRC/PlateScannerView.swift
+      - name: Upload to existing LoopFollow TestFlight app
+        run: bundle exec fastlane release
+      - name: Read existing LoopFollow TestFlight availability
+        run: bundle exec ruby ../scripts/testflight-read-status.rb com.D3GG62L9X8.LoopFollow testflight-status.json
+      - name: Save build and distribution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-plate-testflight
+          path: |
+            loopfollow/LoopFollow.ipa
+            loopfollow/LoopFollow.app.dSYM.zip
+            loopfollow/buildlog/
+            loopfollow/native-plate-ipa-verification.json
+            loopfollow/testflight-status.json
+            loopfollow/native-ui-review.json
+            loopfollow/native-ui-reviewed.log
+            meal-native.xcresult
+            meal-native-build.log
