@@ -127,3 +127,5 @@ jobs:
           FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
         run: bundle exec ruby release-status/scripts/testflight-read-status.rb com.D3GG62L9X8.LoopFollow apple-status.json
+
+# Release retriggered after authorized Actions re-enablement.
