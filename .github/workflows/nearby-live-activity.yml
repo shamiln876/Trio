@@ -18,8 +18,8 @@ jobs:
       matrix:
         include:
           - app: LoopFollow
-            sha: 6d61808c30743c7812de4dfbe343cafc34f89841
-            run: 40193902783
+            sha: 27b5320cc0ff82a583f6b8a124244c7a30b489b8
+            run: 40193986098
             runner: xcode-27
             xcode: Xcode_27.app
             lane: build_LoopFollow
@@ -48,7 +48,7 @@ jobs:
           assert r['status'] == 'completed' and r['conclusion'] == 'success'
           GATE
           if [ "$APP" = LoopFollow ]; then
-            gh api repos/shamiln876/LoopFollow/actions/runs/40193906098 > "$RUNNER_TEMP/lint-gate.json"
+            gh api repos/shamiln876/LoopFollow/actions/runs/40193990217 > "$RUNNER_TEMP/lint-gate.json"
             python3 - <<'LINT'
           import json,os
           r=json.load(open(os.environ['RUNNER_TEMP']+'/lint-gate.json'))
@@ -110,7 +110,7 @@ jobs:
           cat > "$RUNNER_TEMP/nearby-upload/fastlane/Fastfile" <<'RUBY'
           lane :publish do
             key = app_store_connect_api_key(key_id: ENV.fetch('FASTLANE_KEY_ID'), issuer_id: ENV.fetch('FASTLANE_ISSUER_ID'), key_content: ENV.fetch('FASTLANE_KEY'))
-            upload_to_testflight(api_key: key, ipa: File.join(ENV.fetch('GITHUB_WORKSPACE'), 'LoopFollow.ipa'), skip_submission: true, distribute_external: false, skip_waiting_for_build_processing: false, changelog: 'Preserves the existing Live Activity until a replacement is observed, continues readings during renewal, and retries missing activities during background execution. Existing watch contact display selects fresh Bluetooth readings. Physical locked-phone and watch synchronization require verification. Trio build 12 remains compatible.')
+            upload_to_testflight(api_key: key, ipa: File.join(ENV.fetch('GITHUB_WORKSPACE'), 'LoopFollow.ipa'), skip_submission: true, distribute_external: false, skip_waiting_for_build_processing: false, changelog: 'Preserves the existing Live Activity until a replacement is observed, continues readings during renewal, and retries missing activities during background execution. Existing watch contact display selects Bluetooth readings. Physical locked-phone delivery and watch synchronization require verification. Trio build 12 remains compatible.')
           end
           RUBY
           cd "$RUNNER_TEMP/nearby-upload"
