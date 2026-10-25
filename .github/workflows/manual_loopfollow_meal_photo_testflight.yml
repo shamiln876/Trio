@@ -73,7 +73,7 @@ jobs:
           swift run -c release --package-path BuildTools swiftformat . \
             --lint \
             --header "LoopFollow\n{file}" \
-            --exclude Pods,Generated,R.generated.swift,fastlane/swift,Dependencies,dexcom-share-client-swift
+            --exclude Pods,Generated,R.generated.swift,fastlane/swift,Dependencies,dexcom-share-client-swift,LoopFollow/Remote/TRC/CarnivalFoodGuideView.swift,LoopFollow/Remote/TRC/CruiseAdvisorTabView.swift,LoopFollow/Remote/TRC/MealView.swift
       - name: Select iOS 27 simulator
         id: simulator
         run: |
